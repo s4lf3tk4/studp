@@ -1,0 +1,82 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: docker/php/Dockerfile
+    container_name: studpechat-app
+    restart: unless-stopped
+    working_dir: /var/www
+    environment:
+      COMPOSER_HOME: /composer-global
+    volumes:
+      - ./php-producer:/var/www
+      - vendor-data:/var/www/vendor          # ← vendor берётся из образа
+      - ./docker/php/php.ini:/usr/local/etc/php/conf.d/custom.ini
+    networks:
+      - studpechat
+    depends_on:
+      - db
+      - redis
+
+  # Nginx
+  webserver:
+    image: nginx:alpine
+    container_name: studpechat-nginx
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    volumes:
+      - ./php-producer:/var/www
+      - ./docker/nginx/default.conf:/etc/nginx/conf.d/default.conf
+    networks:
+      - studpechat
+    depends_on:
+      - app
+
+  # MySQL
+  db:
+    image: mysql:8.0
+    container_name: studpechat-db
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: ${DB_DATABASE}
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD}
+      MYSQL_PASSWORD: ${DB_PASSWORD}
+      MYSQL_USER: ${DB_USERNAME}
+    ports:
+      - "3307:3306"           # 3307 снаружи, чтобы не конфликтовать с локальным MySQL
+    volumes:
+      - db-data:/var/lib/mysql
+    networks:
+      - studpechat
+
+  # Redis (для очередей/кэша мессенджер-бота)
+  redis:
+    image: redis:7-alpine
+    container_name: studpechat-redis
+    restart: unless-stopped
+    ports:
+      - "6380:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - studpechat
+
+  # Опционально: Node для сборки фронтенда
+  # node:
+  #   image: node:20-alpine
+  #   working_dir: /var/www
+  #   volumes:
+  #     - ./php-producer:/var/www
+  #   command: sh -c "npm install && npm run dev"
+  #   networks:
+  #     - studpechat
+
+networks:
+  studpechat:
+    driver: bridge
+
+volumes:
+  db-data:
+  redis-data:
+  vendor-data:

@@ -1,0 +1,10 @@
+{
+    "config": {},
+    "repositories": {
+        "packagist.org": false,
+        "mirror": {
+            "type": "composer",
+            "url": "https://mirrors.tencent.com/composer/"
+        }
+    }
+}
