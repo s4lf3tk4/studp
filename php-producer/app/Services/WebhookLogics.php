@@ -102,7 +102,7 @@ final class WebhookLogics
                     Storage::disk('local')->put($path, $response->body());
 
                     try {
-                        $pages = app(DocumentPageCounter::class)->count(storage_path('app/'.$path));
+                        $pages = app(DocumentPageCounter::class)->count(Storage::disk('local')->path($path));
                     } finally {
                         Storage::disk('local')->delete($path);
                     }
@@ -205,16 +205,20 @@ final class WebhookLogics
                         return;
                     }
 
-                    // Расширение — из имени файла, при его отсутствии из Content-Type
-                    $name = (string) ($fileMeta['name'] ?? '');
+                    // MAX присылает имя файла в attachment.filename, а payload.name нет
+                    $name = (string) ($fileAttachment['filename'] ?? $fileMeta['name'] ?? '');
                     $extension = strtolower(pathinfo($name, PATHINFO_EXTENSION));
 
                     if (! in_array($extension, ['pdf', 'docx'], true)) {
                         $contentType = (string) $response->header('Content-Type');
+                        $content = $response->body();
 
+                        // Запасные варианты: Content-Type и сигнатура файла
                         $extension = match (true) {
                             str_contains($contentType, 'pdf') => 'pdf',
                             str_contains($contentType, 'word') => 'docx',
+                            str_starts_with($content, '%PDF') => 'pdf',
+                            str_starts_with($content, "PK\x03\x04") => 'docx',
                             default => 'bin',
                         };
                     }
@@ -224,7 +228,7 @@ final class WebhookLogics
                     Storage::disk('local')->put($path, $response->body());
 
                     try {
-                        $pages = app(DocumentPageCounter::class)->count(storage_path('app/'.$path));
+                        $pages = app(DocumentPageCounter::class)->count(Storage::disk('local')->path($path));
                     } finally {
                         Storage::disk('local')->delete($path);
                     }
