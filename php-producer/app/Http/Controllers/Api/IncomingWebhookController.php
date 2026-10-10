@@ -4,7 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Services\MessageSourceDetector;
-use App\Services\WebhookLogics;
+use App\Services\Webhook\WebhookRouter;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Symfony\Component\HttpFoundation\Response;
@@ -13,7 +13,7 @@ final class IncomingWebhookController extends Controller
 {
     public function __construct(
         private readonly MessageSourceDetector $detector,
-        private readonly WebhookLogics $logics,
+        private readonly WebhookRouter $router,
     ) {}
 
     public function __invoke(Request $request): Response
@@ -27,7 +27,7 @@ final class IncomingWebhookController extends Controller
             return response()->json(['ok' => false, 'error' => 'invalid_secret'], 403);
         }
 
-        return $this->logics->handle($payload, $source);
+        return $this->router->handle($payload, $source);
     }
 
     /**
@@ -36,19 +36,13 @@ final class IncomingWebhookController extends Controller
      */
     private function secretIsValid(Request $request, array $payload, ?string $source): bool
     {
-        if ($source === 'telegram') {
-            $secret = (string) config('services.telegram.webhook_secret');
-
-            return $secret === ''
-                || hash_equals($secret, (string) $request->header('X-Telegram-Bot-Api-Secret-Token'));
-        }
-
         if ($source === 'vk') {
             $secret = (string) config('services.vk.secret_key');
 
             return $secret === ''
                 || hash_equals($secret, (string) ($payload['secret'] ?? ''));
         }
+
         if ($source === 'max') {
             $secret = (string) config('services.max.webhook_secret');
 

@@ -10,7 +10,7 @@ use Illuminate\Support\Facades\Cache;
  * VK повторяет событие, если не получил "ok": через 10 с, 3 мин, 10 мин,
  * 30 мин и 1 час, поэтому event_id занимаем ДО обработки и атомарно.
  */
-final class VkEventStore
+final class EventStore
 {
     private const TTL = 86400; // сутки с запасом перекрывают все повторы
 
@@ -41,6 +41,6 @@ final class VkEventStore
 
     private function key(string $eventId): string
     {
-        return "vk:event:{$eventId}";
+        return "event:{$eventId}";
     }
 }

@@ -10,7 +10,7 @@ services:
       COMPOSER_HOME: /composer-global
     volumes:
       - ./php-producer:/var/www
-      - vendor-data:/var/www/vendor          # ← vendor берётся из образа
+      
       - ./docker/php/php.ini:/usr/local/etc/php/conf.d/custom.ini
     networks:
       - studpechat
@@ -61,6 +61,27 @@ services:
       - redis-data:/data
     networks:
       - studpechat
+
+  queue:
+    build:
+      context: .
+      dockerfile: docker/php/Dockerfile
+    container_name: studpechat-queue
+    restart: unless-stopped
+    working_dir: /var/www
+    environment:
+      COMPOSER_HOME: /composer-global
+    volumes:
+      - ./php-producer:/var/www 
+      
+      - ./docker/php/php.ini:/usr/local/etc/php/conf.d/custom.ini
+    command: sh -c "while true; do php artisan queue:work --tries=2 --timeout=280 --max-jobs=10 --memory=384; sleep 1; done"
+    networks:
+      - studpechat
+    depends_on:
+      - redis
+      - db
+
 
   # Опционально: Node для сборки фронтенда
   # node:

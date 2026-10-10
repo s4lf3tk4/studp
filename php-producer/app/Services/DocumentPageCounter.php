@@ -2,37 +2,40 @@
 
 namespace App\Services;
 
-use MJohann\Packlib\PaginatedFileReader;   // ← сверить с vendor/mjohann/paginated-file-reader/composer.json
 use RuntimeException;
 
+/**
+ * Считает страницы PDF через pdfinfo (poppler-utils).
+ * Документ читается потоком из stdin — временный файл не создаётся.
+ */
 final class DocumentPageCounter
 {
-    private const MAX_BYTES = 30 * 1024 * 1024;
-    private const MAX_PAGES = 1000;
-    private const SUPPORTED = ['pdf', 'docx'];
+    public const MAX_PAGES = 2000;
 
-    public function count(string $absolutePath): int
+    /** @param string $command команда, печатающая PDF в stdout (например curl ...) */
+    public function countFromCommand(string $command): int
     {
-        if (! is_file($absolutePath)) {
-            throw new RuntimeException('Файл не найден');
+        $output = [];
+        $code = 0;
+
+        exec($command.' | pdfinfo - 2>&1', $output, $code);
+
+        if ($code !== 0) {
+            throw new RuntimeException('pdfinfo: '.trim(implode(' ', array_slice($output, 0, 2))));
         }
 
-        $extension = strtolower(pathinfo($absolutePath, PATHINFO_EXTENSION));
+        foreach ($output as $line) {
+            if (preg_match('/^Pages:\s+(\d+)/', $line, $m) === 1) {
+                $pages = (int) $m[1];
 
-        if (! in_array($extension, self::SUPPORTED, true)) {
-            throw new RuntimeException('Поддерживаются только PDF и DOCX');
+                if ($pages < 1 || $pages > self::MAX_PAGES) {
+                    throw new RuntimeException("Неправдоподобное число страниц: {$pages}");
+                }
+
+                return $pages;
+            }
         }
 
-        if (filesize($absolutePath) > self::MAX_BYTES) {
-            throw new RuntimeException('Файл больше 30 МБ');
-        }
-
-        $pages = (int) (new PaginatedFileReader($absolutePath))->getTotalPages();
-
-        if ($pages < 1 || $pages > self::MAX_PAGES) {
-            throw new RuntimeException("Неправдоподобное число страниц: {$pages}");
-        }
-
-        return $pages;
+        throw new RuntimeException('Не удалось определить число страниц в PDF');
     }
 }
