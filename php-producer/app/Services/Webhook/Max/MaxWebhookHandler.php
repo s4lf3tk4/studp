@@ -6,7 +6,7 @@ use App\Jobs\ProcessIncomingDocument;
 use App\Jobs\SendMaxReply;
 use App\Services\EventStore;
 use App\Services\MaxMessageSender;
-use App\Services\Webhook\StartCommand;
+use App\Services\Webhook\BotCommand;
 use App\Services\Webhook\WebhookHandler;
 use App\Support\BotTexts;
 use Illuminate\Support\Facades\Log;
@@ -40,13 +40,16 @@ final class MaxWebhookHandler implements WebhookHandler
             'raw' => $event->raw, // временно: пока формат bot_started не подтверждён живыми данными
         ]);
 
-        // Кнопка «Начать» приходит отдельным событием
+        // Первое открытие бота: кнопку «Начать» рисует сам MAX
         if ($event->type === 'bot_started') {
-            return $this->handleBotStarted($event);
+            return $this->handleCommand($event, BotCommand::START);
         }
 
-        if (StartCommand::matches($event->raw['message'] ?? [], $event->text)) {
-            return $this->replyTo($event, BotTexts::welcome());
+        // /start или нажатие кнопки «Отправить файл»
+        $command = BotCommand::detect($event->raw['message'] ?? [], $event->text);
+
+        if ($command !== null) {
+            return $this->handleCommand($event, $command);
         }
 
         if ($event->file !== null) {
@@ -61,14 +64,24 @@ final class MaxWebhookHandler implements WebhookHandler
         return response('ok');
     }
 
-    private function handleBotStarted(MaxEvent $event): Response
+    private function handleCommand(MaxEvent $event, string $command): Response
     {
-        if ($event->userId !== null) {
-            return $this->replyTo($event, BotTexts::welcome());
+        [$text, $keyboard] = match ($command) {
+            BotCommand::START => [BotTexts::welcome(), MaxKeyboard::sendFile()],
+            BotCommand::SEND_FILE => [BotTexts::fileInstructions(), null],
+            default => [null, null],
+        };
+
+        if ($text === null) {
+            return response('ok');
         }
 
-        if ($event->chatId !== null) {
-            defer(fn () => app(MaxMessageSender::class)->sendToChat($event->chatId, BotTexts::welcome()));
+        $attachments = $keyboard === null ? null : [$keyboard];
+
+        if ($event->userId !== null) {
+            defer(fn () => app(MaxMessageSender::class)->send($event->userId, $text, $attachments));
+        } elseif ($event->chatId !== null) {
+            defer(fn () => app(MaxMessageSender::class)->sendToChat($event->chatId, $text, $attachments));
         }
 
         return response('ok');

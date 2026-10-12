@@ -6,7 +6,7 @@ use App\Jobs\ProcessIncomingDocument;
 use App\Jobs\SendVkReply;
 use App\Services\EventStore;
 use App\Services\VkMessageSender;
-use App\Services\Webhook\StartCommand;
+use App\Services\Webhook\BotCommand;
 use App\Services\Webhook\WebhookHandler;
 use App\Support\BotTexts;
 use Illuminate\Support\Facades\Log;
@@ -47,8 +47,11 @@ final class VkWebhookHandler implements WebhookHandler
             'attachments' => $event->message['attachments'] ?? [],
         ]);
 
-        if ($event->peerId !== null && StartCommand::matches($event->message, $event->text)) {
-            return $this->reply($event->peerId, BotTexts::welcome());
+        // Кнопка «Начать», кнопка «Отправить файл» или /start
+        $command = BotCommand::detect($event->message, $event->text);
+
+        if ($event->peerId !== null && $command !== null) {
+            return $this->handleCommand($event->peerId, $command);
         }
 
         if ($event->doc !== null && $event->peerId !== null) {
@@ -61,6 +64,21 @@ final class VkWebhookHandler implements WebhookHandler
 
         // VK считает событие доставленным только при ответе "ok" и HTTP 200
         return response('ok');
+    }
+
+    private function handleCommand(int $peerId, string $command): Response
+    {
+        [$text, $keyboard] = match ($command) {
+            BotCommand::START => [BotTexts::welcome(), VkKeyboard::sendFile()],
+            BotCommand::SEND_FILE => [BotTexts::fileInstructions(), null],
+            default => [null, null],
+        };
+
+        if ($text === null) {
+            return response('ok');
+        }
+
+        return $this->reply($peerId, $text, $keyboard);
     }
 
     private function handleDocument(VkEvent $event): Response
@@ -90,9 +108,9 @@ final class VkWebhookHandler implements WebhookHandler
         return response('ok');
     }
 
-    private function reply(int $peerId, string $text): Response
+    private function reply(int $peerId, string $text, ?array $keyboard = null): Response
     {
-        defer(fn () => app(VkMessageSender::class)->send($peerId, $text));
+        defer(fn () => app(VkMessageSender::class)->send($peerId, $text, $keyboard));
 
         return response('ok');
     }
