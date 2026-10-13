@@ -5,13 +5,19 @@ namespace App\Services\Webhook;
 final class BotCommand
 {
     public const START = 'start';
-    public const SEND_FILE = 'send_file';
+    public const CAMPUS1 = 'campus1';
+    public const CAMPUS2 = 'campus2';
+    public const CAMPUS3 = 'campus3';
+    public const CAMPUS4 = 'campus4';
 
-    /** Подписи кнопок: VK при нажатии текстовой кнопки присылает её текст */
     private const LABELS = [
         'начать' => self::START,
         '/start' => self::START,
-        'отправить файл' => self::SEND_FILE,
+        'Корпус 1'=> self::CAMPUS1,
+        'Корпус 2'=> self::CAMPUS2,
+        'Корпус 3'=> self::CAMPUS3,
+        'Корпус 4'=> self::CAMPUS4,
+        
     ];
 
     /** Команда из payload кнопки или из текста сообщения */

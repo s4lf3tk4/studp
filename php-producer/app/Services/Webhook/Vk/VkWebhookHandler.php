@@ -32,7 +32,7 @@ final class VkWebhookHandler implements WebhookHandler
 
         // Повторная доставка не должна приводить к повторному ответу
         if ($event->eventId !== '' && ! $this->events->claim($event->eventId, $payload)) {
-            Log::info('VK: повторная доставка события, пропускаем', ['event_id' => $event->eventId]);
+            Log::info('VK: повторная доставка события: ', ['event_id' => $event->eventId]);
 
             return response('ok');
         }
@@ -47,7 +47,7 @@ final class VkWebhookHandler implements WebhookHandler
             'attachments' => $event->message['attachments'] ?? [],
         ]);
 
-        // Кнопка «Начать», кнопка «Отправить файл» или /start
+        // Кнопка Начать, кнопка Отправить файл или /start
         $command = BotCommand::detect($event->message, $event->text);
 
         if ($event->peerId !== null && $command !== null) {
@@ -69,7 +69,7 @@ final class VkWebhookHandler implements WebhookHandler
     private function handleCommand(int $peerId, string $command): Response
     {
         [$text, $keyboard] = match ($command) {
-            BotCommand::START => [BotTexts::welcome(), VkKeyboard::sendFile()],
+            BotCommand::START => [BotTexts::welcome(), VkKeyboard::chosenCampus()],
             BotCommand::SEND_FILE => [BotTexts::fileInstructions(), null],
             default => [null, null],
         };
