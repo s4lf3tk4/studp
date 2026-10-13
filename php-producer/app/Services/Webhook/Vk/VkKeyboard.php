@@ -14,9 +14,9 @@ final class VkKeyboard
         foreach (BotCommand::CAMPUSES as $command => $label) {
             $row[] = [
                 'action' => [
-                    'type' => 'text',
-                    'label' => $label,
-                    'payload' => json_encode(['command' => $command], JSON_UNESCAPED_UNICODE),
+                    'type' => 'text',                                    // ← тип кнопки
+                    'label' => $label,                                   // ← что видит пользователь
+                    'payload' => json_encode(['command' => $command], JSON_UNESCAPED_UNICODE),  // ← что приходит боту
                 ],
                 'color' => 'primary',
             ];

@@ -21,6 +21,11 @@ final class BotTexts
             .'После отправки выберите доступный корпус, а я посчитаю страницы и назову стоимость.';
     }
     
+    public static function campusRequired(): string
+    {
+        return 'Сначала выберите корпус, в котором нужно распечатать:';
+    }
+    
     public static function campusChosen(): string
     {
         return "Вы выбрали корпус $campusNumber.\n".

@@ -3,7 +3,8 @@
 namespace App\Services\Webhook\Vk;
 
 use App\Jobs\ProcessIncomingDocument;
-use App\Jobs\SendVkReply;
+use App\Jobs\SendVkReply;   
+use App\Services\CampusChoice;  
 use App\Services\EventStore;
 use App\Services\VkMessageSender;
 use App\Services\Webhook\BotCommand;
@@ -51,7 +52,7 @@ final class VkWebhookHandler implements WebhookHandler
         $command = BotCommand::detect($event->message, $event->text);
 
         if ($event->peerId !== null && $command !== null) {
-            return $this->handleCommand($event->peerId, $command);
+            return $this->handleCommand($event, $command);
         }
 
         if ($event->doc !== null && $event->peerId !== null) {
