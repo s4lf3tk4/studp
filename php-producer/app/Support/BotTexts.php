@@ -20,6 +20,12 @@ final class BotTexts
             ."Если файл в Word: «Файл → Сохранить как → PDF».\n"
             .'После отправки выберите доступный корпус, а я посчитаю страницы и назову стоимость.';
     }
+    
+    public static function campusChosen(): string
+    {
+        return "Вы выбрали корпус $campusNumber.\n".
+                "Отправьте файл в формате PDF\n";
+    }
 
     public static function onlyPdf(): string
     {

@@ -66,8 +66,21 @@ final class VkWebhookHandler implements WebhookHandler
         return response('ok');
     }
 
-    private function handleCommand(int $peerId, string $command): Response
+    private function handleCommand(VkEvent $event, string $command): Response
     {
+        $peerId = $event->peerId;                    // куда отвечать
+        $userId = $event->userId ?? $peerId;         // кто отправил: в личке совпадают, в беседе нет
+
+        if (BotCommand::isCampus($command)) {
+            app(CampusChoice::class)->remember('vk', $userId, $command);
+
+            return $this->reply(
+                $peerId,
+                BotTexts::campusChosen(BotCommand::CAMPUSES[$command]),
+                VkKeyboard::sendFile(),
+            );
+        }
+
         [$text, $keyboard] = match ($command) {
             BotCommand::START => [BotTexts::welcome(), VkKeyboard::chosenCampus()],
             BotCommand::SEND_FILE => [BotTexts::fileInstructions(), null],
@@ -96,13 +109,22 @@ final class VkWebhookHandler implements WebhookHandler
             return $this->reply($event->peerId, BotTexts::noFileLink());
         }
 
+        $userId = $event->userId ?? $event->peerId;
+        $campus = app(CampusChoice::class)->get('vk', $userId);
+
+        if ($campus === null) {
+            return $this->reply($event->peerId, BotTexts::campusRequired(), VkKeyboard::chosenCampus());
+        }
+
         ProcessIncomingDocument::dispatch(
             platform: 'vk',
-            recipientId: $event->peerId,
+            recipientId: $event->peerId,   // куда отвечать
+            userId: $userId,               // кто отправил — это и есть «id пользователя»
             fileUrl: $url,
             fileName: $event->doc['title'] ?? null,
             extension: $extension,
             size: isset($event->doc['size']) ? (int) $event->doc['size'] : null,
+            campus: $campus,
         );
 
         return response('ok');

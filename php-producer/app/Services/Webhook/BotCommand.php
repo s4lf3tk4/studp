@@ -5,22 +5,31 @@ namespace App\Services\Webhook;
 final class BotCommand
 {
     public const START = 'start';
+    public const SEND_FILE = 'send_file';
     public const CAMPUS1 = 'campus1';
     public const CAMPUS2 = 'campus2';
     public const CAMPUS3 = 'campus3';
     public const CAMPUS4 = 'campus4';
 
+    /** Команда => подпись кнопки: единственное место, где перечислены корпуса */
+    public const CAMPUSES = [
+        self::CAMPUS1 => 'Корпус 1',
+        self::CAMPUS2 => 'Корпус 2',
+        self::CAMPUS3 => 'Корпус 3',
+        self::CAMPUS4 => 'Корпус 4',
+    ];
+
+    /** Подписи кнопок: VK при нажатии текстовой кнопки присылает её текст (в нижнем регистре) */
     private const LABELS = [
         'начать' => self::START,
         '/start' => self::START,
-        'Корпус 1'=> self::CAMPUS1,
-        'Корпус 2'=> self::CAMPUS2,
-        'Корпус 3'=> self::CAMPUS3,
-        'Корпус 4'=> self::CAMPUS4,
-        
+        'отправить файл' => self::SEND_FILE,
+        'корпус 1' => self::CAMPUS1,
+        'корпус 2' => self::CAMPUS2,
+        'корпус 3' => self::CAMPUS3,
+        'корпус 4' => self::CAMPUS4,
     ];
 
-    /** Команда из payload кнопки или из текста сообщения */
     public static function detect(array $message, ?string $text): ?string
     {
         $payload = $message['payload'] ?? null;
@@ -39,17 +48,8 @@ final class BotCommand
         return self::LABELS[mb_strtolower(trim((string) $text))] ?? null;
     }
 
-    /** Команда из payload callback-кнопки MAX */
-    public static function fromCallback(?string $payload): ?string
+    public static function isCampus(string $command): bool
     {
-        if ($payload === null || $payload === '') {
-            return null;
-        }
-
-        $decoded = json_decode($payload, true);
-
-        return is_array($decoded) && isset($decoded['command'])
-            ? (string) $decoded['command']
-            : $payload;
+        return array_key_exists($command, self::CAMPUSES);
     }
 }
