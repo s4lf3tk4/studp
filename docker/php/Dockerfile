@@ -16,6 +16,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libonig-dev \
         libzip-dev \
         libssl-dev \
+        libicu-dev \
         autoconf \
         gcc \
         make \
@@ -28,6 +29,7 @@ RUN docker-php-ext-install -j"$(nproc)" \
         mbstring \
         pcntl \
         zip \
+        intl \
         opcache
 
 # --- Сертификаты Минцифры -----------------------------------------------------
@@ -58,7 +60,7 @@ WORKDIR /var/www
 RUN usermod -u 1000 www-data
 
 RUN php -r ' \
-    $required = ["mbstring","zip","curl","openssl","dom","fileinfo","pdo_mysql","pcntl","redis","Zend OPcache"]; \
+    $required = ["mbstring","zip","curl","openssl","dom","fileinfo","pdo_mysql","pcntl","intl","redis","Zend OPcache"]; \
     $missing = array_values(array_filter($required, fn ($e) => ! extension_loaded($e))); \
     if ($missing) { fwrite(STDERR, "Не хватает расширений: ".implode(", ", $missing).PHP_EOL); exit(1); } \
     fwrite(STDOUT, "Расширения на месте".PHP_EOL); \

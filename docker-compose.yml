@@ -1,24 +1,44 @@
+# Общий каркас php-контейнеров: один образ на app/queue/migrate
+x-php: &php
+  build:
+    context: .
+    dockerfile: docker/php/Dockerfile
+  image: studpechat-php:local
+  working_dir: /var/www
+  environment:
+    COMPOSER_HOME: /composer-global
+  volumes:
+    - ./php-producer:/var/www
+    - ./docker/php/php.ini:/usr/local/etc/php/conf.d/custom.ini
+  networks:
+    - studpechat
+
 services:
+  # Одноразовый контейнер: схема БД + справочник корпусов.
+  # Запускается при каждом `docker compose up`, отрабатывает и выходит.
+  migrate:
+    <<: *php
+    container_name: studpechat-migrate
+    restart: "no"
+    command: >
+      sh -c "php artisan migrate --force --isolated &&
+             php artisan db:seed --class=CampusScheduleSeeder --force"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
   app:
-    build:
-      context: .
-      dockerfile: docker/php/Dockerfile
+    <<: *php
     container_name: studpechat-app
     restart: unless-stopped
-    working_dir: /var/www
-    environment:
-      COMPOSER_HOME: /composer-global
-    volumes:
-      - ./php-producer:/var/www
-      
-      - ./docker/php/php.ini:/usr/local/etc/php/conf.d/custom.ini
-    networks:
-      - studpechat
     depends_on:
-      - db
-      - redis
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_started
 
-  # Nginx
   webserver:
     image: nginx:alpine
     container_name: studpechat-nginx
@@ -31,9 +51,9 @@ services:
     networks:
       - studpechat
     depends_on:
-      - app
+      app:
+        condition: service_started
 
-  # MySQL
   db:
     image: mysql:8.0
     container_name: studpechat-db
@@ -44,13 +64,18 @@ services:
       MYSQL_PASSWORD: ${DB_PASSWORD}
       MYSQL_USER: ${DB_USERNAME}
     ports:
-      - "3307:3306"           # 3307 снаружи, чтобы не конфликтовать с локальным MySQL
+      - "3307:3306"
     volumes:
       - db-data:/var/lib/mysql
     networks:
       - studpechat
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u root -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 24
+      start_period: 30s
 
-  # Redis (для очередей/кэша мессенджер-бота)
   redis:
     image: redis:7-alpine
     container_name: studpechat-redis
@@ -61,37 +86,22 @@ services:
       - redis-data:/data
     networks:
       - studpechat
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
 
   queue:
-    build:
-      context: .
-      dockerfile: docker/php/Dockerfile
+    <<: *php
     container_name: studpechat-queue
     restart: unless-stopped
-    working_dir: /var/www
-    environment:
-      COMPOSER_HOME: /composer-global
-    volumes:
-      - ./php-producer:/var/www 
-      
-      - ./docker/php/php.ini:/usr/local/etc/php/conf.d/custom.ini
     command: sh -c "while true; do php artisan queue:work --tries=2 --timeout=280 --max-jobs=10 --memory=384; sleep 1; done"
-    networks:
-      - studpechat
     depends_on:
-      - redis
-      - db
-
-
-  # Опционально: Node для сборки фронтенда
-  # node:
-  #   image: node:20-alpine
-  #   working_dir: /var/www
-  #   volumes:
-  #     - ./php-producer:/var/www
-  #   command: sh -c "npm install && npm run dev"
-  #   networks:
-  #     - studpechat
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_started
 
 networks:
   studpechat:
@@ -100,4 +110,3 @@ networks:
 volumes:
   db-data:
   redis-data:
-  vendor-data:
