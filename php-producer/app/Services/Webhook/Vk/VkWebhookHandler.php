@@ -150,7 +150,9 @@ final class VkWebhookHandler implements WebhookHandler
             campus: $campus,
         );
 
-        return response('ok');
+        return $this->reply($event->peerId, BotTexts::counting());
+    
+
     }
 
     private function reply(int $peerId, string $text, ?array $keyboard = null): Response

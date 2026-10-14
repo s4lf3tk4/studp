@@ -73,4 +73,59 @@ final class MaxMessageSender
 
         return true;
     }
+        /**
+     * Подтверждение нажатия inline-кнопки: POST /answers?callback_id=...
+     * Если передать текст — сообщение с кнопкой заменяется этим текстом.
+     * Документация: https://dev.max.ru/docs-api/methods/POST/answers
+     *
+     * @param  array<int, array<string, mixed>>|null  $attachments
+     */
+    public function answer(string $callbackId, ?string $text = null, ?array $attachments = null): bool
+    {
+        $token = (string) config('services.max.access_token');
+
+        if ($token === '') {
+            Log::warning('MAX_ACCESS_TOKEN пуст — callback не подтверждён');
+
+            return false;
+        }
+
+        $url = rtrim((string) config('services.max.base_url'), '/').'/answers?callback_id='.urlencode($callbackId);
+
+        $body = [];
+
+        if ($text !== null && $text !== '') {
+            $body['message'] = array_filter([
+                'text' => $text,
+                'attachments' => $attachments,
+            ], fn ($value) => $value !== null);
+        }
+
+        try {
+            $response = Http::timeout(15)
+                ->connectTimeout(5)
+                ->withHeaders(['Authorization' => $token])
+                // пустой объект, а не пустой массив: MAX ждёт объект тела
+                ->post($url, $body === [] ? (object) [] : $body);
+        } catch (\Throwable $e) {
+            Log::error('MAX /answers: '.$e->getMessage());
+
+            return false;
+        }
+
+        if ($response->failed()) {
+            Log::error('MAX /answers: HTTP '.$response->status().' '.$response->body());
+
+            return false;
+        }
+
+        // MAX отдаёт 200 и при неуспехе — смотрим поле success
+        if ($response->json('success') !== true) {
+            Log::warning('MAX /answers: '.$response->body());
+
+            return false;
+        }
+
+        return true;
+    }
 }

@@ -48,6 +48,11 @@ final class BotTexts
         return $text.' Стоимость: '.Money::rub($count * $pricePerPageKopecks)
             .' ('.Money::rub($pricePerPageKopecks).' за страницу).';
     }
+
+    public static function counting(): string
+    {
+        return 'Файл получил. Считаю страницы и стоимость — ответ пришлю в этот чат.';
+    }
     
     public static function campusInactive(string $campusNumber): string
     {
