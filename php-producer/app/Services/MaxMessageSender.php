@@ -73,7 +73,8 @@ final class MaxMessageSender
 
         return true;
     }
-        /**
+       
+    /**
      * Подтверждение нажатия inline-кнопки: POST /answers?callback_id=...
      * Если передать текст — сообщение с кнопкой заменяется этим текстом.
      * Документация: https://dev.max.ru/docs-api/methods/POST/answers
