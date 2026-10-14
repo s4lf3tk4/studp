@@ -3,6 +3,7 @@
 namespace App\Jobs;
 
 use App\Services\DocumentPageCounter;
+use App\Services\DocumentStore;
 use App\Services\MaxMessageSender;
 use App\Services\VkMessageSender;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -28,6 +29,8 @@ final class ProcessIncomingDocument implements ShouldQueue
         public readonly ?string $fileName = null,
         public readonly ?string $extension = null,
         public readonly ?int $size = null,
+        public readonly ?int $userId = null,     // кто отправил (VK: from_id)
+        public readonly ?string $campus = null,
     ) {}
 
     public function handle(DocumentPageCounter $counter): void
@@ -68,6 +71,16 @@ final class ProcessIncomingDocument implements ShouldQueue
             return;
         }
 
+        Log::info('Файл обработан', [
+            'platform' => $this->platform,
+            'user_id' => $this->userId,
+            'campus' => $this->campus,
+            'pages' => $pages,
+        ]);
+
+        if ($this->userId !== null) {
+            app(DocumentStore::class)->pages($this->platform, $this->userId, $pages);
+        }
         $this->reply(sprintf('В файле %d стр.', $pages));
     }
 

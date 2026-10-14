@@ -9,9 +9,12 @@ use App\Services\EventStore;
 use App\Services\VkMessageSender;
 use App\Services\Webhook\BotCommand;
 use App\Services\Webhook\WebhookHandler;
+use App\Services\DocumentStore;
 use App\Support\BotTexts;
+use App\Support\ScheduleText;
 use Illuminate\Support\Facades\Log;
 use Symfony\Component\HttpFoundation\Response;
+use App\Models\Campus;
 
 final class VkWebhookHandler implements WebhookHandler
 {
@@ -73,18 +76,31 @@ final class VkWebhookHandler implements WebhookHandler
         $userId = $event->userId ?? $peerId;         // кто отправил: в личке совпадают, в беседе нет
 
         if (BotCommand::isCampus($command)) {
+            // Красная кнопка: корпус выключен — не запоминаем и не считаем
+            if (! Campus::isActive($command)) {
+                return $this->reply(
+                    $peerId,
+                    BotTexts::campusInactive(BotCommand::CAMPUSES[$command]),
+                    VkKeyboard::chosenCampus(),
+                );
+            }
+
             app(CampusChoice::class)->remember('vk', $userId, $command);
 
             return $this->reply(
                 $peerId,
-                BotTexts::campusChosen(BotCommand::CAMPUSES[$command]),
-                VkKeyboard::sendFile(),
+                BotTexts::campusChosen(
+                    BotCommand::CAMPUSES[$command],
+                    ScheduleText::forCampus($command),
+                ),
+                VkKeyboard::cancelBtn()
             );
         }
 
         [$text, $keyboard] = match ($command) {
             BotCommand::START => [BotTexts::welcome(), VkKeyboard::chosenCampus()],
             BotCommand::SEND_FILE => [BotTexts::fileInstructions(), null],
+            BotCommand::CANCEL => [BotTexts::cancelBtn(), VkKeyboard::chosenCampus()],
             default => [null, null],
         };
 
@@ -116,7 +132,13 @@ final class VkWebhookHandler implements WebhookHandler
         if ($campus === null) {
             return $this->reply($event->peerId, BotTexts::campusRequired(), VkKeyboard::chosenCampus());
         }
-
+        app(DocumentStore::class)->remember(
+            platform: 'vk',
+            userId: $userId,
+            recipientId: $event->peerId,
+            doc: $event->doc,
+            campus: $campus,
+        );
         ProcessIncomingDocument::dispatch(
             platform: 'vk',
             recipientId: $event->peerId,   // куда отвечать

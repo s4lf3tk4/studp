@@ -26,11 +26,28 @@ final class BotTexts
         return 'Сначала выберите корпус, в котором нужно распечатать:';
     }
     
-    public static function campusChosen(): string
+    public static function campusChosen(string $campusNumber, ?string $schedule = null): string
     {
-        return "Вы выбрали корпус $campusNumber.\n".
-                "Отправьте файл в формате PDF\n";
+        $text = "Вы выбрали корпус {$campusNumber}.\n";
+
+        if ($schedule !== null) {
+            $text .= "\n{$schedule}\n";
+        }
+
+        return $text."\nОтправьте файл в формате PDF\n";
     }
+    
+    public static function campusInactive(string $campusNumber): string
+    {
+        return "{$campusNumber} сейчас не принимает заказы — выберите другой корпус.";
+    }
+    
+
+    public static function cancelBtn(): string
+    {
+        return "Отмена выбора\n";
+    }
+
 
     public static function onlyPdf(): string
     {
