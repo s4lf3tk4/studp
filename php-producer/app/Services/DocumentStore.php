@@ -5,15 +5,15 @@ namespace App\Services;
 use Illuminate\Support\Facades\Cache;
 
 /**
- * Ссылка на присланный файл: нужна после подсчёта страниц — для счёта,
- * печати и повторного скачивания, когда апдейт VK уже не придёт.
+ * Черновик заказа: присланный файл, выбранный корпус, число страниц и сумма.
+ * Живёт до оплаты; дальше источник истины — таблицы documents/payments/receipts.
  */
 final class DocumentStore
 {
     private const TTL = 604800; // 7 суток: окно заказа переживает оплату и печать
 
     /**
-     * @param  array<string, mixed>  $doc  id, owner_id, title, ext, size, url
+     * @param  array<string, mixed>  $doc  url, title (лишние ключи из апдейта игнорируются)
      */
     public function remember(
         string $platform,
@@ -28,13 +28,9 @@ final class DocumentStore
             'recipient_id' => $recipientId, // куда отвечать: в беседе это peer_id, а не user_id
             'url' => (string) ($doc['url'] ?? ''),
             'title' => $doc['title'] ?? null,
-            'ext' => strtolower((string) ($doc['ext'] ?? '')),
-            'size' => isset($doc['size']) ? (int) $doc['size'] : null,
-            'doc_id' => isset($doc['id']) ? (int) $doc['id'] : null,
-            'owner_id' => isset($doc['owner_id']) ? (int) $doc['owner_id'] : null,
             'campus' => $campus,
+            'file_path' => null,
             'pages' => null,
-            'received_at' => now()->toIso8601String(),
         ], self::TTL);
     }
 
@@ -46,31 +42,42 @@ final class DocumentStore
         return is_array($stored) ? $stored : null;
     }
 
-    /** Дописать число страниц, когда джоба его посчитала */
-        /** Дописать число страниц (и цену корпуса) после подсчёта */
+    /** Путь к скачанному файлу — джоба узнаёт его после сохранения */
+    public function file(string $platform, int $userId, string $path): void
+    {
+        $this->put($platform, $userId, ['file_path' => $path]);
+    }
+
+    /** Число страниц и цена корпуса на момент заказа */
     public function pages(
         string $platform,
         int $userId,
         int $pages,
         ?int $pricePerPageKopecks = null,
     ): void {
+        $this->put($platform, $userId, [
+            'pages' => $pages,
+            'price_per_page_kopecks' => $pricePerPageKopecks,
+            'amount_kopecks' => $pricePerPageKopecks !== null ? $pages * $pricePerPageKopecks : null,
+            'counted_at' => now()->toIso8601String(),
+        ]);
+    }
+
+    public function forget(string $platform, int $userId): void
+    {
+        Cache::forget($this->key($platform, $userId));
+    }
+
+    /** @param  array<string, mixed>  $values */
+    private function put(string $platform, int $userId, array $values): void
+    {
         $entry = $this->get($platform, $userId);
 
         if ($entry === null) {
             return;
         }
 
-        $entry['pages'] = $pages;
-        $entry['price_per_page_kopecks'] = $pricePerPageKopecks;
-        $entry['amount_kopecks'] = $pricePerPageKopecks !== null ? $pages * $pricePerPageKopecks : null;
-        $entry['counted_at'] = now()->toIso8601String();
-
-        Cache::put($this->key($platform, $userId), $entry, self::TTL);
-    }
-
-    public function forget(string $platform, int $userId): void
-    {
-        Cache::forget($this->key($platform, $userId));
+        Cache::put($this->key($platform, $userId), array_merge($entry, $values), self::TTL);
     }
 
     private function key(string $platform, int $userId): string

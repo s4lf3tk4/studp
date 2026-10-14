@@ -6,19 +6,30 @@ use RuntimeException;
 
 /**
  * Считает страницы PDF через pdfinfo (poppler-utils).
- * Документ читается потоком из stdin — временный файл не создаётся.
+ * countFromFile — локальный файл, countFromCommand — PDF, напечатанный в stdout (например, curl).
  */
 final class DocumentPageCounter
 {
     public const MAX_PAGES = 2000;
 
-    /** @param string $command команда, печатающая PDF в stdout (например curl ...) */
+    /** Локальный файл: pdfinfo читает его сам, без cat и без pipe */
+    public function countFromFile(string $path): int
+    {
+        return $this->parse('pdfinfo '.escapeshellarg($path).' 2>&1');
+    }
+
+    /** Подсчёт без сохранения: команда печатает PDF в stdout */
     public function countFromCommand(string $command): int
+    {
+        return $this->parse($command.' | pdfinfo - 2>&1');
+    }
+
+    private function parse(string $shellCommand): int
     {
         $output = [];
         $code = 0;
 
-        exec($command.' | pdfinfo - 2>&1', $output, $code);
+        exec($shellCommand, $output, $code);
 
         if ($code !== 0) {
             throw new RuntimeException('pdfinfo: '.trim(implode(' ', array_slice($output, 0, 2))));

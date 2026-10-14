@@ -2,15 +2,17 @@
 
 namespace App\Jobs;
 
+use App\Models\Campus;
 use App\Services\DocumentPageCounter;
 use App\Services\DocumentStore;
 use App\Services\MaxMessageSender;
 use App\Services\VkMessageSender;
+use App\Support\BotTexts;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Support\Facades\Log;
-use App\Models\Campus;
-use App\Support\BotTexts;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use RuntimeException;
 
 final class ProcessIncomingDocument implements ShouldQueue
@@ -52,28 +54,31 @@ final class ProcessIncomingDocument implements ShouldQueue
             return;
         }
 
-        $command = 'curl -sS -m 300 --fail -L';
+        // Файл скачиваем один раз и оставляем себе: подписанная ссылка VK/MAX
+        // рано или поздно перестанет открываться, а для печати нужны байты
+        $disk = Storage::disk('documents');
+        $path = sprintf('%s/%s/%s.pdf', $this->platform, now()->format('Y/m'), (string) Str::uuid());
 
-        if ($this->platform === 'max') {
-            $command .= ' -H '.escapeshellarg('Authorization: '.(string) config('services.max.access_token'));
-        }
-
-        $command .= ' '.escapeshellarg($this->fileUrl);
+        $disk->makeDirectory(dirname($path));   // vk/2026/10 — иначе curl не запишет файл
+        $absolute = $disk->path($path);
 
         try {
-            $pages = $counter->countFromCommand($command);
+            $this->download($absolute);
+            $pages = $counter->countFromFile($absolute);
         } catch (RuntimeException $e) {
-            Log::warning('Подсчёт страниц не удался', [
+            $disk->delete($path);   // не оставляем обрывок и файл без посчитанных страниц
+
+            Log::warning('Файл не обработан', [
                 'platform' => $this->platform,
                 'error' => $e->getMessage(),
             ]);
 
-            $this->reply('Не смог посчитать: '.$e->getMessage());
+            $this->reply('Не смог обработать файл: '.$e->getMessage());
 
             return;
         }
 
-                $campus = $this->campus !== null
+        $campus = $this->campus !== null
             ? Campus::query()->where('code', $this->campus)->first()
             : null;
 
@@ -90,13 +95,33 @@ final class ProcessIncomingDocument implements ShouldQueue
             'campus' => $this->campus,
             'pages' => $pages,
             'price_per_page_kopecks' => $pricePerPage,
+            'file_path' => $path,
         ]);
 
         if ($this->userId !== null) {
+            app(DocumentStore::class)->file($this->platform, $this->userId, $path);
             app(DocumentStore::class)->pages($this->platform, $this->userId, $pages, $pricePerPage);
         }
 
         $this->reply(BotTexts::pages($pages, $pricePerPage));
+    }
+
+    /** Скачивание в файл: для MAX нужен заголовок Authorization */
+    private function download(string $absolutePath): void
+    {
+        $command = 'curl -sS -m 300 --fail -L -o '.escapeshellarg($absolutePath);
+
+        if ($this->platform === 'max') {
+            $command .= ' -H '.escapeshellarg('Authorization: '.(string) config('services.max.access_token'));
+        }
+
+        $command .= ' '.escapeshellarg($this->fileUrl);
+
+        exec($command, $output, $code);
+
+        if ($code !== 0) {
+            throw new RuntimeException('не скачал файл (код curl '.$code.')');
+        }
     }
 
     /** Вызывается после исчерпания попыток */
