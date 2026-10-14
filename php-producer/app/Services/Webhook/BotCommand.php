@@ -11,6 +11,7 @@ final class BotCommand
     public const CAMPUS3 = 'campus3';
     public const CAMPUS4 = 'campus4';
     public const CANCEL = 'cancel';
+    public const CONFIRM = 'confirm';
 
     /** Команда => подпись кнопки: единственное место, где перечислены корпуса */
     public const CAMPUSES = [
@@ -30,6 +31,7 @@ final class BotCommand
         'корпус 3' => self::CAMPUS3,
         'корпус 4' => self::CAMPUS4,
         'отмена'=> self::CANCEL,
+        'подтвердить' => self::CONFIRM,
     ];
 
     public static function detect(array $message, ?string $text): ?string

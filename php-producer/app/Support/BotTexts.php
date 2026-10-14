@@ -47,7 +47,7 @@ final class BotTexts
 
         return $text.' Стоимость: '.Money::rub($count * $pricePerPageKopecks)
             .' ('.Money::rub($pricePerPageKopecks).' за страницу).';
-    }
+    }   
 
     public static function counting(): string
     {
@@ -57,6 +57,40 @@ final class BotTexts
     public static function campusInactive(string $campusNumber): string
     {
         return "{$campusNumber} сейчас не принимает заказы — выберите другой корпус.";
+    }
+    
+    public static function orderNotFound(): string
+    {
+        return 'Не нашёл ваш заказ — пришлите PDF ещё раз.';
+    }
+
+    public static function orderFailed(): string
+    {
+        return 'Не смог создать заказ, попробуйте ещё раз.';
+    }
+
+    public static function fileCanceled(): string
+    {
+        return "Файл отменён и удалён.\nВыберите корпус и пришлите другой PDF.";
+    }
+
+    public static function orderCannotCancel(int $id): string
+    {
+        return "Заказ №{$id} уже создан — отменить его кнопкой нельзя.";
+    }
+
+    public static function orderConfirmed(int $id, ?string $paymentUrl = null): string
+    {
+        $text = "Заказ №{$id} принят, ждём оплату.";
+
+        return $paymentUrl !== null ? $text."\nОплатить: {$paymentUrl}" : $text;
+    }
+
+    public static function alreadyConfirmed(int $id, ?string $paymentUrl = null): string
+    {
+        $text = "Заказ №{$id} уже создан.";
+
+        return $paymentUrl !== null ? $text."\nОплатить: {$paymentUrl}" : $text;
     }
     
 

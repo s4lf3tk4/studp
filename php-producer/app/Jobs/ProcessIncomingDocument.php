@@ -7,6 +7,8 @@ use App\Services\DocumentPageCounter;
 use App\Services\DocumentStore;
 use App\Services\MaxMessageSender;
 use App\Services\VkMessageSender;
+use App\Services\Webhook\Max\MaxKeyboard;
+use App\Services\Webhook\Vk\VkKeyboard;
 use App\Support\BotTexts;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
@@ -98,12 +100,15 @@ final class ProcessIncomingDocument implements ShouldQueue
             'file_path' => $path,
         ]);
 
+        // Черновик заказа: из него кнопка «Подтвердить» создаст запись в MySQL
         if ($this->userId !== null) {
-            app(DocumentStore::class)->file($this->platform, $this->userId, $path);
+            app(DocumentStore::class)->file($this->platform, $this->userId, $path, $disk->size($path));
             app(DocumentStore::class)->pages($this->platform, $this->userId, $pages, $pricePerPage);
         }
 
-        $this->reply(BotTexts::pages($pages, $pricePerPage));
+        $keyboard = $this->platform === 'max' ? MaxKeyboard::confirmOrCancel() : VkKeyboard::confirmOrCancel();
+
+        $this->reply(BotTexts::pages($pages, $pricePerPage), $keyboard);
     }
 
     /** Скачивание в файл: для MAX нужен заголовок Authorization */
@@ -135,12 +140,15 @@ final class ProcessIncomingDocument implements ShouldQueue
         $this->reply('Не удалось обработать файл: '.$e->getMessage());
     }
 
-    private function reply(string $text): void
+    /** Ответ пользователю: у MAX клавиатура — элемент вложений, у VK — отдельный параметр */
+    private function reply(string $text, ?array $keyboard = null): void
     {
-        $sender = $this->platform === 'max'
-            ? app(MaxMessageSender::class)
-            : app(VkMessageSender::class);
+        if ($this->platform === 'max') {
+            app(MaxMessageSender::class)->send($this->recipientId, $text, $keyboard === null ? null : [$keyboard]);
 
-        $sender->send($this->recipientId, $text);
+            return;
+        }
+
+        app(VkMessageSender::class)->send($this->recipientId, $text, $keyboard);
     }
 }

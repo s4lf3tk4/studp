@@ -81,4 +81,32 @@ final class VkKeyboard
             BotCommand::CAMPUSES,
         );
     }
+        /** Кнопка «Подтвердить» — после подсчёта страниц */
+    /** Кнопки решения по заказу: подтвердить оплату или отменить файл */
+    public static function confirmOrCancel(): array
+    {
+        return [
+            'one_time' => false,
+            'buttons' => [
+                [
+                    [
+                        'action' => [
+                            'type' => 'text',
+                            'label' => 'Подтвердить',
+                            'payload' => json_encode(['command' => BotCommand::CONFIRM], JSON_UNESCAPED_UNICODE),
+                        ],
+                        'color' => 'positive',
+                    ],
+                    [
+                        'action' => [
+                            'type' => 'text',
+                            'label' => 'Отмена',
+                            'payload' => json_encode(['command' => BotCommand::CANCEL], JSON_UNESCAPED_UNICODE),
+                        ],
+                        'color' => 'negative',
+                    ],
+                ],
+            ],
+        ];
+    }
 }

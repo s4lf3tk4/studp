@@ -9,12 +9,15 @@ use App\Services\CampusChoice;
 use App\Services\DocumentStore;
 use App\Services\EventStore;
 use App\Services\MaxMessageSender;
+use App\Services\OrderConfirmation;
+use App\Services\OrderCancellation;
 use App\Services\Webhook\BotCommand;
 use App\Services\Webhook\WebhookHandler;
 use App\Support\BotTexts;
 use App\Support\ScheduleText;
 use Illuminate\Support\Facades\Log;
 use Symfony\Component\HttpFoundation\Response;
+
 
 final class MaxWebhookHandler implements WebhookHandler
 {
@@ -30,7 +33,7 @@ final class MaxWebhookHandler implements WebhookHandler
         $event = MaxEvent::fromPayload($payload);
 
         if (! $this->events->claim($event->eventKey, $payload)) {
-            Log::info(  'MAX: повторная доставка события, пропускаем', ['key' => $event->eventKey]);
+            Log::info('MAX: повторная доставка события, пропускаем', ['key' => $event->eventKey]);
 
             return response('ok');
         }
@@ -43,7 +46,6 @@ final class MaxWebhookHandler implements WebhookHandler
             'text' => $event->text,
             'callback' => $event->callbackId,
             'command' => $event->command,
-            'raw_callback' => $event->raw['callback'] ?? null, // временно: проверяем структуру
         ]);
 
         // Первое открытие бота: показываем, что умеем, и кнопки корпусов
@@ -72,6 +74,34 @@ final class MaxWebhookHandler implements WebhookHandler
 
     private function handleCommand(MaxEvent $event, string $command): Response
     {
+        // Подтверждение заказа: черновик из Redis превращается в запись в MySQL
+        if ($command === BotCommand::CONFIRM) {
+            $userId = $event->userId;
+
+            if ($userId === null) {
+                return response('ok');
+            }
+
+            return $this->reply(
+                $event,
+                app(OrderConfirmation::class)->confirm('max', $userId),
+                MaxKeyboard::chosenCampus(),
+            );
+        }
+        if ($command === BotCommand::CANCEL) {
+            $userId = $event->userId;
+
+            if ($userId === null) {
+                return response('ok');
+            }
+
+            return $this->reply(
+                $event,
+                app(OrderCancellation::class)->cancel('max', $userId),
+                MaxKeyboard::chosenCampus(),
+            );
+        }
+
         if (BotCommand::isCampus($command)) {
             $userId = $event->userId;
 
@@ -159,8 +189,6 @@ final class MaxWebhookHandler implements WebhookHandler
         );
 
         return $this->reply($event, BotTexts::counting());
-    
-
     }
 
     /** Кнопку подтверждаем ответом на callback и заменяем то же сообщение */

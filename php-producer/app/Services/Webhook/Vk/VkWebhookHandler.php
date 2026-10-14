@@ -3,18 +3,20 @@
 namespace App\Services\Webhook\Vk;
 
 use App\Jobs\ProcessIncomingDocument;
-use App\Jobs\SendVkReply;   
-use App\Services\CampusChoice;  
+use App\Jobs\SendVkReply;
+use App\Models\Campus;
+use App\Services\CampusChoice;
+use App\Services\DocumentStore;
 use App\Services\EventStore;
+use App\Services\OrderConfirmation;
+use App\Services\OrderCancellation;
 use App\Services\VkMessageSender;
 use App\Services\Webhook\BotCommand;
 use App\Services\Webhook\WebhookHandler;
-use App\Services\DocumentStore;
 use App\Support\BotTexts;
 use App\Support\ScheduleText;
 use Illuminate\Support\Facades\Log;
 use Symfony\Component\HttpFoundation\Response;
-use App\Models\Campus;
 
 final class VkWebhookHandler implements WebhookHandler
 {
@@ -51,7 +53,7 @@ final class VkWebhookHandler implements WebhookHandler
             'attachments' => $event->message['attachments'] ?? [],
         ]);
 
-        // Кнопка Начать, кнопка Отправить файл или /start
+        // Кнопка «Начать», «Отправить файл», «Корпус N», «Подтвердить», «Отмена» или /start
         $command = BotCommand::detect($event->message, $event->text);
 
         if ($event->peerId !== null && $command !== null) {
@@ -74,6 +76,22 @@ final class VkWebhookHandler implements WebhookHandler
     {
         $peerId = $event->peerId;                    // куда отвечать
         $userId = $event->userId ?? $peerId;         // кто отправил: в личке совпадают, в беседе нет
+
+        // Подтверждение заказа: черновик из Redis превращается в запись в MySQL
+        if ($command === BotCommand::CONFIRM) {
+            return $this->reply(
+                $peerId,
+                app(OrderConfirmation::class)->confirm('vk', $userId),
+                VkKeyboard::chosenCampus(),
+            );
+        }
+        if ($command === BotCommand::CANCEL) {
+            return $this->reply(
+                $peerId,
+                app(OrderCancellation::class)->cancel('vk', $userId),
+                VkKeyboard::chosenCampus(),
+            );
+        }
 
         if (BotCommand::isCampus($command)) {
             // Красная кнопка: корпус выключен — не запоминаем и не считаем
@@ -132,6 +150,7 @@ final class VkWebhookHandler implements WebhookHandler
         if ($campus === null) {
             return $this->reply($event->peerId, BotTexts::campusRequired(), VkKeyboard::chosenCampus());
         }
+
         app(DocumentStore::class)->remember(
             platform: 'vk',
             userId: $userId,
@@ -139,6 +158,7 @@ final class VkWebhookHandler implements WebhookHandler
             doc: $event->doc,
             campus: $campus,
         );
+
         ProcessIncomingDocument::dispatch(
             platform: 'vk',
             recipientId: $event->peerId,   // куда отвечать
@@ -151,8 +171,6 @@ final class VkWebhookHandler implements WebhookHandler
         );
 
         return $this->reply($event->peerId, BotTexts::counting());
-    
-
     }
 
     private function reply(int $peerId, string $text, ?array $keyboard = null): Response

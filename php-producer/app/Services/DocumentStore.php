@@ -5,15 +5,17 @@ namespace App\Services;
 use Illuminate\Support\Facades\Cache;
 
 /**
- * Черновик заказа: присланный файл, выбранный корпус, число страниц и сумма.
- * Живёт до оплаты; дальше источник истины — таблицы documents/payments/receipts.
+ * Черновик заказа между отправкой файла и подтверждением: путь к файлу,
+ * корпус, страницы и сумма. Живёт в Redis; источник истины — таблицы documents/payments.
  */
 final class DocumentStore
 {
-    private const TTL = 604800; // 7 суток: окно заказа переживает оплату и печать
+    /** Неоплаченный черновик живёт сутки, подтверждённый заказ — 7 суток */
+    private const TTL_UNPAID = 86400;
+    private const TTL_PAID = 604800;
 
     /**
-     * @param  array<string, mixed>  $doc  url, title (лишние ключи из апдейта игнорируются)
+     * @param  array<string, mixed>  $doc  url, title
      */
     public function remember(
         string $platform,
@@ -25,13 +27,16 @@ final class DocumentStore
         Cache::put($this->key($platform, $userId), [
             'platform' => $platform,
             'user_id' => $userId,
-            'recipient_id' => $recipientId, // куда отвечать: в беседе это peer_id, а не user_id
+            'recipient_id' => $recipientId,   // куда отвечать: в беседе это peer_id, а не user_id
             'url' => (string) ($doc['url'] ?? ''),
             'title' => $doc['title'] ?? null,
             'campus' => $campus,
             'file_path' => null,
+            'size' => null,
             'pages' => null,
-        ], self::TTL);
+            'status' => 'new',
+            'created_at' => now()->toIso8601String(),
+        ], self::TTL_UNPAID);
     }
 
     /** @return array<string, mixed>|null */
@@ -42,13 +47,13 @@ final class DocumentStore
         return is_array($stored) ? $stored : null;
     }
 
-    /** Путь к скачанному файлу — джоба узнаёт его после сохранения */
-    public function file(string $platform, int $userId, string $path): void
+    /** Путь к скачанному файлу и его размер — джоба узнаёт их после сохранения */
+    public function file(string $platform, int $userId, string $path, ?int $size = null): void
     {
-        $this->put($platform, $userId, ['file_path' => $path]);
+        $this->put($platform, $userId, ['file_path' => $path, 'size' => $size]);
     }
 
-    /** Число страниц и цена корпуса на момент заказа */
+    /** Число страниц, цена корпуса и сумма */
     public function pages(
         string $platform,
         int $userId,
@@ -59,8 +64,20 @@ final class DocumentStore
             'pages' => $pages,
             'price_per_page_kopecks' => $pricePerPageKopecks,
             'amount_kopecks' => $pricePerPageKopecks !== null ? $pages * $pricePerPageKopecks : null,
+            'status' => 'counted',
             'counted_at' => now()->toIso8601String(),
         ]);
+    }
+
+    /** Заказ создан в MySQL — запоминаем id и ссылку, чтобы повтор не создал второй */
+    public function confirmed(string $platform, int $userId, int $documentId, ?string $paymentUrl): void
+    {
+        $this->put($platform, $userId, [
+            'document_id' => $documentId,
+            'payment_url' => $paymentUrl,
+            'status' => 'awaiting_payment',
+            'confirmed_at' => now()->toIso8601String(),
+        ], self::TTL_PAID);
     }
 
     public function forget(string $platform, int $userId): void
@@ -69,7 +86,7 @@ final class DocumentStore
     }
 
     /** @param  array<string, mixed>  $values */
-    private function put(string $platform, int $userId, array $values): void
+    private function put(string $platform, int $userId, array $values, ?int $ttl = null): void
     {
         $entry = $this->get($platform, $userId);
 
@@ -77,7 +94,7 @@ final class DocumentStore
             return;
         }
 
-        Cache::put($this->key($platform, $userId), array_merge($entry, $values), self::TTL);
+        Cache::put($this->key($platform, $userId), array_merge($entry, $values), $ttl ?? self::TTL_UNPAID);
     }
 
     private function key(string $platform, int $userId): string

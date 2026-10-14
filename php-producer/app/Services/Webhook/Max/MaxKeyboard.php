@@ -78,4 +78,20 @@ final class MaxKeyboard
             BotCommand::CAMPUSES,
         );
     }
+    /** Кнопки решения по заказу: подтвердить оплату или отменить файл */
+    public static function confirmOrCancel(): array
+    {
+        return self::keyboard([
+            [
+                'type' => 'callback',
+                'text' => 'Подтвердить',
+                'payload' => json_encode(['command' => BotCommand::CONFIRM], JSON_UNESCAPED_UNICODE),
+            ],
+            [
+                'type' => 'callback',
+                'text' => 'Отмена',
+                'payload' => json_encode(['command' => BotCommand::CANCEL], JSON_UNESCAPED_UNICODE),
+            ],
+        ]);
+    }
 }
