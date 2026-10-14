@@ -1,0 +1,7 @@
+# локальные переменные окружения (у php-producer свой .gitignore)
+.env
+.env.backup
+
+# логи и временные файлы
+*.log
+get(vk
