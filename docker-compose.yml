@@ -120,6 +120,22 @@ services:
       timeout: 3s
       retries: 12
 
+  scheduler:
+    <<: *php
+    container_name: studpechat-scheduler
+    user: "1000:1000"
+    restart: unless-stopped
+    command: php artisan schedule:work
+    volumes:
+      - ./php-producer:/var/www
+      - ./docker/php/php.ini:/usr/local/etc/php/conf.d/custom.ini
+      - ./data/documents:/var/www/storage/app/private/documents
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_started
+
 networks:
   studpechat:
     driver: bridge
