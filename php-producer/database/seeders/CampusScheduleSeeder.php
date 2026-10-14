@@ -15,6 +15,7 @@ class CampusScheduleSeeder extends Seeder
         $schedule = [
             'campus1' => [
                 'title' => 'Корпус 1',
+                'price_per_page_kopecks' => 240,
                 'address' => 'ул. Ленина, 12',
                 'room' => '305',
                 'is_active' => true,
@@ -30,6 +31,7 @@ class CampusScheduleSeeder extends Seeder
             ],
             'campus2' => [
                 'title' => 'Корпус 2',
+                'price_per_page_kopecks' => 230,
                 'address' => 'ул. Мира, 5',
                 'room' => '101',
                 'is_active' => true,
@@ -45,6 +47,7 @@ class CampusScheduleSeeder extends Seeder
             ],
             'campus3' => [
                 'title' => 'Корпус 3',
+                'price_per_page_kopecks' => 220,
                 'address' => 'пр. Строителей, 40',
                 'room' => '212',
                 'is_active' => true,
@@ -60,6 +63,7 @@ class CampusScheduleSeeder extends Seeder
             ],
             'campus4' => [
                 'title' => 'Корпус 4',
+                'price_per_page_kopecks' => 210,
                 'address' => 'ул. Садовая, 8',
                 'room' => '3',
                 'is_active' => false,   // ← для проверки красной кнопки
@@ -83,6 +87,7 @@ class CampusScheduleSeeder extends Seeder
                     'address' => $data['address'] ?? null,
                     'room' => $data['room'] ?? null,
                     'is_active' => $data['is_active'] ?? true,
+                    'price_per_page_kopecks' => $data['price_per_page_kopecks'] ?? 200,
                 ],
             );
 
@@ -94,6 +99,7 @@ class CampusScheduleSeeder extends Seeder
                     [
                         // null — выходной; можно задать is_working => false явно, сохранив часы
                         'is_working' => $day !== null && ($day['is_working'] ?? true),
+                        
                         'opens_at' => $day['opens_at'] ?? null,
                         'closes_at' => $day['closes_at'] ?? null,
                         'lunch_starts_at' => $day['lunch_starts_at'] ?? null,

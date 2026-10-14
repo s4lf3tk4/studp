@@ -47,8 +47,13 @@ final class DocumentStore
     }
 
     /** Дописать число страниц, когда джоба его посчитала */
-    public function pages(string $platform, int $userId, int $pages): void
-    {
+        /** Дописать число страниц (и цену корпуса) после подсчёта */
+    public function pages(
+        string $platform,
+        int $userId,
+        int $pages,
+        ?int $pricePerPageKopecks = null,
+    ): void {
         $entry = $this->get($platform, $userId);
 
         if ($entry === null) {
@@ -56,9 +61,10 @@ final class DocumentStore
         }
 
         $entry['pages'] = $pages;
+        $entry['price_per_page_kopecks'] = $pricePerPageKopecks;
+        $entry['amount_kopecks'] = $pricePerPageKopecks !== null ? $pages * $pricePerPageKopecks : null;
         $entry['counted_at'] = now()->toIso8601String();
 
-        // Остаток TTL не сохраняем — запись и так живёт в пределах окна заказа
         Cache::put($this->key($platform, $userId), $entry, self::TTL);
     }
 

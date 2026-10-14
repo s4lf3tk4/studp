@@ -7,11 +7,11 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 final class Campus extends Model
 {
-    protected $fillable = ['code', 'title', 'address', 'room', 'is_active'];
+    protected $fillable = ['code', 'title', 'address', 'room', 'is_active', 'price_per_page_kopecks'];
 
     protected function casts(): array
     {
-        return ['is_active' => 'bool'];
+        return ['is_active' => 'bool', 'price_per_page_kopecks' => 'int'];
     }
 
     /** @return HasMany<CampusDay, $this> */

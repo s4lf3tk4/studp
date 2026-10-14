@@ -9,6 +9,8 @@ use App\Services\VkMessageSender;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Support\Facades\Log;
+use App\Models\Campus;
+use App\Support\BotTexts;
 use RuntimeException;
 
 final class ProcessIncomingDocument implements ShouldQueue
@@ -71,17 +73,30 @@ final class ProcessIncomingDocument implements ShouldQueue
             return;
         }
 
+                $campus = $this->campus !== null
+            ? Campus::query()->where('code', $this->campus)->first()
+            : null;
+
+        if ($this->campus !== null && $campus === null) {
+            Log::warning('Корпус из заявки не найден в БД — считаю без цены', ['campus' => $this->campus]);
+        }
+
+        // 0 в БД означает «цена не задана» — тогда показываем только страницы
+        $pricePerPage = ($campus?->price_per_page_kopecks) ?: null;
+
         Log::info('Файл обработан', [
             'platform' => $this->platform,
             'user_id' => $this->userId,
             'campus' => $this->campus,
             'pages' => $pages,
+            'price_per_page_kopecks' => $pricePerPage,
         ]);
 
         if ($this->userId !== null) {
-            app(DocumentStore::class)->pages($this->platform, $this->userId, $pages);
+            app(DocumentStore::class)->pages($this->platform, $this->userId, $pages, $pricePerPage);
         }
-        $this->reply(sprintf('В файле %d стр.', $pages));
+
+        $this->reply(BotTexts::pages($pages, $pricePerPage));
     }
 
     /** Вызывается после исчерпания попыток */

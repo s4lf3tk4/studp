@@ -36,6 +36,18 @@ final class BotTexts
 
         return $text."\nОтправьте файл в формате PDF\n";
     }
+        /** @param int|null $pricePerPageKopecks цена за страницу корпуса: null — показываем только страницы */
+    public static function pages(int $count, ?int $pricePerPageKopecks = null): string
+    {
+        $text = "В файле {$count} стр.";
+
+        if ($pricePerPageKopecks === null) {
+            return $text;
+        }
+
+        return $text.' Стоимость: '.Money::rub($count * $pricePerPageKopecks)
+            .' ('.Money::rub($pricePerPageKopecks).' за страницу).';
+    }
     
     public static function campusInactive(string $campusNumber): string
     {
@@ -64,10 +76,6 @@ final class BotTexts
         return "Файл больше {$megabytes} МБ — такой не обработаю.";
     }
 
-    public static function pages(int $count): string
-    {
-        return "В файле {$count} стр.";
-    }
 
     public static function countFailed(string $reason): string
     {
