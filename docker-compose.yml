@@ -7,6 +7,8 @@ x-php: &php
   working_dir: /var/www
   environment:
     COMPOSER_HOME: /composer-global
+  env_file:
+    - .env
   volumes:
     - ./php-producer:/var/www
     - ./docker/php/php.ini:/usr/local/etc/php/conf.d/custom.ini
@@ -14,14 +16,18 @@ x-php: &php
     - studpechat
 
 services:
-  # Одноразовый контейнер: схема БД + справочник корпусов.
+  # Одноразовый контейнер: зависимости, схема БД, справочник корпусов.
   # Запускается при каждом `docker compose up`, отрабатывает и выходит.
   migrate:
     <<: *php
     container_name: studpechat-migrate
+    user: "1000:1000"
     restart: "no"
     command: >
-      sh -c "php artisan migrate --force --isolated &&
+      sh -c "if [ ! -f vendor/autoload.php ]; then
+               composer install --no-interaction --prefer-dist --optimize-autoloader;
+             fi &&
+             php artisan migrate --force --isolated &&
              php artisan db:seed --class=CampusScheduleSeeder --force"
     depends_on:
       db:
@@ -33,6 +39,27 @@ services:
     <<: *php
     container_name: studpechat-app
     restart: unless-stopped
+    # volumes перечисляем полностью: YAML-слияние не склеивает списки, а заменяет
+    volumes:
+      - ./php-producer:/var/www
+      - ./docker/php/php.ini:/usr/local/etc/php/conf.d/custom.ini
+      - ./data/documents:/var/www/storage/app/private/documents
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_started
+
+  queue:
+    <<: *php
+    container_name: studpechat-queue
+    user: "1000:1000"
+    restart: unless-stopped
+    command: sh -c "while true; do php artisan queue:work --tries=2 --timeout=280 --max-jobs=10 --memory=384; sleep 1; done"
+    volumes:
+      - ./php-producer:/var/www
+      - ./docker/php/php.ini:/usr/local/etc/php/conf.d/custom.ini
+      - ./data/documents:/var/www/storage/app/private/documents
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -59,12 +86,13 @@ services:
     container_name: studpechat-db
     restart: unless-stopped
     environment:
-      MYSQL_DATABASE: ${DB_DATABASE}
-      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD}
-      MYSQL_PASSWORD: ${DB_PASSWORD}
-      MYSQL_USER: ${DB_USERNAME}
+      # значения по умолчанию, чтобы up не падал при отсутствии .env
+      MYSQL_DATABASE: ${DB_DATABASE:-studpechat}
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:-secret}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-secret}
+      MYSQL_USER: ${DB_USERNAME:-laravel}
     ports:
-      - "3307:3306"
+      - "127.0.0.1:3307:3306"   # наружу не торчит, с хоста доступен
     volumes:
       - db-data:/var/lib/mysql
     networks:
@@ -81,7 +109,7 @@ services:
     container_name: studpechat-redis
     restart: unless-stopped
     ports:
-      - "6380:6379"
+      - "127.0.0.1:6380:6379"
     volumes:
       - redis-data:/data
     networks:
@@ -91,17 +119,6 @@ services:
       interval: 5s
       timeout: 3s
       retries: 12
-
-  queue:
-    <<: *php
-    container_name: studpechat-queue
-    restart: unless-stopped
-    command: sh -c "while true; do php artisan queue:work --tries=2 --timeout=280 --max-jobs=10 --memory=384; sleep 1; done"
-    depends_on:
-      migrate:
-        condition: service_completed_successfully
-      redis:
-        condition: service_started
 
 networks:
   studpechat:

@@ -68,6 +68,14 @@ RUN php -r ' \
     && command -v pdfinfo \
     && command -v curl
 
+# --- Точка входа ---------------------------------------------------------------
+# Права на storage и папка для скачанных PDF создаются на старте контейнера,
+# потому что кода в образе нет — он приходит bind-mount'ом
+COPY docker/php/entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
+
+ENTRYPOINT ["entrypoint.sh"]
+
 EXPOSE 9000
 
 CMD ["php-fpm"]
