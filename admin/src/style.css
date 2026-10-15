@@ -1,0 +1,97 @@
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: #f5f6f8;
+  color: #1f2430;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+.wrap { max-width: 940px; margin: 0 auto; padding: 24px; }
+
+.card {
+  background: #fff;
+  border-radius: 10px;
+  padding: 16px 20px;
+  margin-bottom: 16px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .08);
+}
+
+h1 { font-size: 20px; margin: 0; }
+h2 { font-size: 16px; margin: 0 0 12px; }
+.muted { color: #6b7280; font-size: 13px; }
+.err { color: #b91c1c; }
+.ok { color: #15803d; }
+
+.row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.row.space-between { justify-content: space-between; margin-bottom: 16px; }
+.row.gap-sm { gap: 6px; }
+.stack { display: flex; flex-direction: column; gap: 10px; }
+.login { max-width: 340px; margin: 80px auto; }
+
+table { width: 100%; border-collapse: collapse; }
+th, td { padding: 6px 8px; text-align: left; border-bottom: 1px solid #eceef2; font-size: 14px; }
+
+input[type="text"], input[type="time"], input[type="number"], input[type="password"], select {
+  padding: 6px 8px;
+  border: 1px solid #cfd4dc;
+  border-radius: 6px;
+  font: inherit;
+}
+
+input[type="time"] { width: 100px; }
+input[type="number"] { width: 130px; }
+
+button {
+  padding: 8px 14px;
+  border: 0;
+  border-radius: 6px;
+  background: #2b6cb0;
+  color: #fff;
+  font: inherit;
+  cursor: pointer;
+}
+
+button.ghost { background: #e5e7eb; color: #1f2430; }
+button:disabled { opacity: .5; cursor: default; }
+
+/* Шапка панели: выбранный корпус + выход */
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  background: #fff;
+  border-radius: 10px;
+  padding: 12px 20px;
+  margin-bottom: 12px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .08);
+}
+
+.topbar select { min-width: 220px; }
+
+/* Вкладки разделов */
+.tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.tabs button {
+  background: transparent;
+  color: #4b5563;
+  border-bottom: 2px solid transparent;
+  border-radius: 6px 6px 0 0;
+}
+
+.tabs button:hover { background: #eef2f7; }
+
+.tabs button.active {
+  color: #2b6cb0;
+  border-bottom-color: #2b6cb0;
+  font-weight: 600;
+}
+
+.warn { color: #b45309; font-size: 13px; }

@@ -27,8 +27,7 @@ services:
       sh -c "if [ ! -f vendor/autoload.php ]; then
                composer install --no-interaction --prefer-dist --optimize-autoloader;
              fi &&
-             php artisan migrate --force --isolated &&
-             php artisan db:seed --class=CampusScheduleSeeder --force"
+             php artisan migrate --force --isolated"
     depends_on:
       db:
         condition: service_healthy
@@ -135,6 +134,38 @@ services:
         condition: service_completed_successfully
       redis:
         condition: service_started
+  
+    # Разовая сборка панели: npm-пакеты ставятся в том, на Windows ничего не нужно
+  admin-build:
+    image: node:20-alpine
+    profiles: ["admin"]
+    working_dir: /work/admin
+    volumes:
+      - ./admin:/work/admin
+      - ./php-producer/public:/work/php-producer/public
+      - admin-node-modules:/work/admin/node_modules
+      - admin-npm-cache:/root/.npm
+    command: sh -c "npm install && npm run build"
+
+  # Dev-сервер с горячей перезагрузкой — по желанию, для правок панели
+  admin-dev:
+    image: node:20-alpine
+    profiles: ["admin"]
+    working_dir: /work/admin
+    environment:
+      ADMIN_API_TARGET: http://webserver
+    ports:
+      - "127.0.0.1:5173:5173"
+    volumes:
+      - ./admin:/work/admin
+      - ./php-producer/public:/work/php-producer/public
+      - admin-node-modules:/work/admin/node_modules
+      - admin-npm-cache:/root/.npm
+    networks:
+      - studpechat
+    command: npm run dev
+    depends_on:
+      - webserver
 
 networks:
   studpechat:
@@ -143,3 +174,5 @@ networks:
 volumes:
   db-data:
   redis-data:
+  admin-node-modules:
+  admin-npm-cache:
