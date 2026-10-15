@@ -9,7 +9,8 @@ final class Payment extends Model
 {
     protected $fillable = [
         'uuid', 'document_id', 'pages', 'unit_price', 'amount',
-        'currency', 'status', 'provider', 'provider_payment_id', 'paid_at',
+        'currency', 'status', 'provider', 'confirmation_url', 'receipt_email',
+        'provider_payment_id', 'paid_at', 'notification',
     ];
 
     protected function casts(): array
@@ -19,6 +20,7 @@ final class Payment extends Model
             'unit_price' => 'int',
             'amount' => 'int',
             'paid_at' => 'datetime',
+            'notification' => 'array',
         ];
     }
 

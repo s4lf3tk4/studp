@@ -3,8 +3,54 @@
 use App\Models\Document;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Schedule;
 use Illuminate\Support\Facades\Storage;
+
+Artisan::command('payments:paid {document} {--provider=}', function () {
+    $document = Document::query()->find((int) $this->argument('document'));
+
+    if ($document === null) {
+        $this->error('Заказ #'.$this->argument('document').' не найден');
+
+        return;
+    }
+
+    $payment = $document->payments()->latest('id')->first();
+
+    if ($payment === null) {
+        $this->error('У заказа #'.$document->id.' нет счёта');
+
+        return;
+    }
+
+    $provider = (string) ($this->option('provider') ?: $payment->provider);
+    $base = rtrim((string) config('services.payments.webhook_url'), '/');
+    $secret = (string) config('services.payments.webhook_secret');
+
+    // Полезная нагрузка в том же виде, в каком её пришлёт провайдер
+    $payload = [
+        'event' => 'payment.succeeded',
+        'object' => [
+            'id' => $payment->provider_payment_id ?: 'stub-'.$payment->uuid,
+            'status' => 'succeeded',
+            'paid' => true,
+            'amount' => [
+                'value' => number_format($payment->amount / 100, 2, '.', ''),
+                'currency' => $payment->currency,
+            ],
+            'metadata' => [
+                'document_id' => $document->id,
+                'payment_uuid' => $payment->uuid,
+            ],
+        ],
+    ];
+
+    $response = Http::withHeaders($secret !== '' ? ['X-Payment-Secret' => $secret] : [])
+        ->post($base.'/'.$provider.'/notify', $payload);
+
+    $this->line("POST {$base}/{$provider}/notify → HTTP {$response->status()} {$response->body()}");
+})->purpose('Имитировать успешную оплату: отправить уведомление провайдера');
 
 Artisan::command('inspire', function () {
     $this->comment(Inspiring::quote());

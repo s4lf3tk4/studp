@@ -9,15 +9,14 @@ use App\Services\CampusChoice;
 use App\Services\DocumentStore;
 use App\Services\EventStore;
 use App\Services\MaxMessageSender;
-use App\Services\OrderConfirmation;
 use App\Services\OrderCancellation;
+use App\Services\OrderConfirmation;
 use App\Services\Webhook\BotCommand;
 use App\Services\Webhook\WebhookHandler;
 use App\Support\BotTexts;
 use App\Support\ScheduleText;
 use Illuminate\Support\Facades\Log;
 use Symfony\Component\HttpFoundation\Response;
-
 
 final class MaxWebhookHandler implements WebhookHandler
 {
@@ -74,7 +73,7 @@ final class MaxWebhookHandler implements WebhookHandler
 
     private function handleCommand(MaxEvent $event, string $command): Response
     {
-        // Подтверждение заказа: черновик из Redis превращается в запись в MySQL
+        // Подтверждение заказа: заказ в MySQL и ссылка на оплату
         if ($command === BotCommand::CONFIRM) {
             $userId = $event->userId;
 
@@ -82,12 +81,14 @@ final class MaxWebhookHandler implements WebhookHandler
                 return response('ok');
             }
 
-            return $this->reply(
-                $event,
-                app(OrderConfirmation::class)->confirm('max', $userId),
-                MaxKeyboard::chosenCampus(),
-            );
+            $text = app(OrderConfirmation::class)->confirm('max', $userId);
+
+            // «Формирую ссылку» отправляем новым сообщением, результат — ответом на callback
+            defer(fn () => app(MaxMessageSender::class)->send($userId, BotTexts::paymentLinkCreating()));
+
+            return $this->reply($event, $text, MaxKeyboard::chosenCampus());
         }
+
         if ($command === BotCommand::CANCEL) {
             $userId = $event->userId;
 
@@ -130,7 +131,6 @@ final class MaxWebhookHandler implements WebhookHandler
         [$text, $keyboard] = match ($command) {
             BotCommand::START => [BotTexts::welcome(), MaxKeyboard::chosenCampus()],
             BotCommand::SEND_FILE => [BotTexts::fileInstructions(), null],
-            BotCommand::CANCEL => [BotTexts::cancelBtn(), MaxKeyboard::chosenCampus()],
             default => [null, null],
         };
 

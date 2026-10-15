@@ -69,6 +69,32 @@ final class BotTexts
         return 'Не смог создать заказ, попробуйте ещё раз.';
     }
 
+        /** Приходит сразу после нажатия «Подтвердить» */
+    public static function paymentLinkCreating(): string
+    {
+        return 'Формирую ссылку на оплату…';
+    }
+
+    public static function orderConfirmed(
+        int $id,
+        string $fileName,
+        int $pages,
+        int $amountKopecks,
+        ?string $paymentUrl = null,
+    ): string {
+        $text = "Заказ №{$id}\n"
+            ."Файл: {$fileName}\n"
+            ."Страниц: {$pages}\n"
+            .'К оплате: '.Money::rub($amountKopecks);
+
+        return $paymentUrl !== null ? $text."\n\nОплатить: {$paymentUrl}" : $text;
+    }
+
+    public static function orderPaid(int $id): string
+    {
+        return "Заказ №{$id} оплачен, передаю в печать.";
+    }
+
     public static function fileCanceled(): string
     {
         return "Файл отменён и удалён.\nВыберите корпус и пришлите другой PDF.";
@@ -77,13 +103,6 @@ final class BotTexts
     public static function orderCannotCancel(int $id): string
     {
         return "Заказ №{$id} уже создан — отменить его кнопкой нельзя.";
-    }
-
-    public static function orderConfirmed(int $id, ?string $paymentUrl = null): string
-    {
-        $text = "Заказ №{$id} принят, ждём оплату.";
-
-        return $paymentUrl !== null ? $text."\nОплатить: {$paymentUrl}" : $text;
     }
 
     public static function alreadyConfirmed(int $id, ?string $paymentUrl = null): string

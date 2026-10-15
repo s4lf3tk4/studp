@@ -3,11 +3,12 @@
 namespace App\Services;
 
 use App\Models\Document;
+use App\Services\Payments\PaymentManager;
 use App\Support\BotTexts;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
-/** Подтверждение заказа: черновик из Redis превращается в запись в MySQL */
+/** Подтверждение заказа: черновик из Redis становится заказом в MySQL и счётом у провайдера */
 final class OrderConfirmation
 {
     public function __construct(private readonly DocumentStore $store) {}
@@ -39,22 +40,6 @@ final class OrderConfirmation
                 'pages' => $draft['pages'],
                 'status' => Document::STATUS_AWAITING_PAYMENT,
             ]);
-
-            $paymentUrl = null;
-
-            if (isset($draft['amount_kopecks'], $draft['price_per_page_kopecks'])) {
-                $payment = $document->payments()->create([
-                    'uuid' => (string) Str::uuid(),
-                    'pages' => $draft['pages'],
-                    'unit_price' => $draft['price_per_page_kopecks'],
-                    'amount' => $draft['amount_kopecks'],
-                    'currency' => 'RUB',
-                    'status' => 'pending',
-                    'provider' => config('services.payments.provider', 'stub'),
-                ]);
-
-                $paymentUrl = $this->paymentUrl($payment->uuid);
-            }
         } catch (\Throwable $e) {
             Log::error('Не создал заказ из черновика', [
                 'platform' => $platform,
@@ -65,14 +50,57 @@ final class OrderConfirmation
             return BotTexts::orderFailed();
         }
 
+        $paymentUrl = null;
+
+        try {
+            $paymentUrl = $this->createPayment($document, $draft);
+        } catch (\Throwable $e) {
+            // Заказ уже в БД, деньги не списаны: ссылку можно сформировать повторно,
+            // поэтому пользователю отдаём заказ без ссылки, а не «не смог создать»
+            Log::error('Не создал счёт у провайдера', [
+                'document_id' => $document->id,
+                'error' => $e->getMessage(),
+            ]);
+        }
+
         $this->store->confirmed($platform, $userId, $document->id, $paymentUrl);
 
-        return BotTexts::orderConfirmed($document->id, $paymentUrl);
+        return BotTexts::orderConfirmed(
+            $document->id,
+            (string) ($draft['title'] ?? 'файл'),
+            (int) $draft['pages'],
+            (int) ($draft['amount_kopecks'] ?? 0),
+            $paymentUrl,
+        );
     }
 
-    /** Заглушка платёжной ссылки: настоящий провайдер подставит свой адрес */
-    private function paymentUrl(string $uuid): string
+    /**
+     * Счёт создаётся, только если у корпуса задана цена.
+     *
+     * @param  array<string, mixed>  $draft
+     */
+    private function createPayment(Document $document, array $draft): ?string
     {
-        return rtrim((string) config('services.payments.public_url'), '/').'/pay/'.$uuid;
+        if (! isset($draft['amount_kopecks'], $draft['price_per_page_kopecks'])) {
+            return null;
+        }
+
+        $gateway = app(PaymentManager::class)->default();
+
+        $payment = $document->payments()->create([
+            'uuid' => (string) Str::uuid(),
+            'pages' => $draft['pages'],
+            'unit_price' => $draft['price_per_page_kopecks'],
+            'amount' => $draft['amount_kopecks'],
+            'currency' => 'RUB',
+            'status' => 'pending',
+            'provider' => $gateway->name(),
+        ]);
+
+        $url = $gateway->createPayment($payment);
+
+        $payment->update(['confirmation_url' => $url]);
+
+        return $url;
     }
 }

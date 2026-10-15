@@ -62,7 +62,18 @@ return [
     'payments' => [
         'unit_price' => (int) env('PAYMENT_UNIT_PRICE', 200),   // копейки за страницу
         'public_url' => env('PAYMENT_PUBLIC_URL', env('APP_URL')),
-        'provider' => env('PAYMENT_PROVIDER', 'stub'),
+        'provider' => env('PAYMENT_PROVIDER', 'stub'),          // stub | yookassa
+        'webhook_url' => env('PAYMENT_WEBHOOK_URL', 'http://webserver/api/payments'),
+        'webhook_secret' => env('PAYMENT_WEBHOOK_SECRET', ''),  // пусто — проверка выключена
+        'return_url' => env('PAYMENT_RETURN_URL', env('APP_URL')),
+        'yookassa' => [
+            'shop_id' => env('YOOKASSA_SHOP_ID'),
+            'secret_key' => env('YOOKASSA_SECRET_KEY'),
+            'vat_code' => (int) env('YOOKASSA_VAT_CODE', 1),
+            'tax_system_code' => env('YOOKASSA_TAX_SYSTEM_CODE'),
+            'payment_subject' => env('YOOKASSA_PAYMENT_SUBJECT', 'service'),
+            'payment_mode' => env('YOOKASSA_PAYMENT_MODE', 'full_payment'),
+        ],
     ],
 
 ];

@@ -8,8 +8,8 @@ use App\Models\Campus;
 use App\Services\CampusChoice;
 use App\Services\DocumentStore;
 use App\Services\EventStore;
-use App\Services\OrderConfirmation;
 use App\Services\OrderCancellation;
+use App\Services\OrderConfirmation;
 use App\Services\VkMessageSender;
 use App\Services\Webhook\BotCommand;
 use App\Services\Webhook\WebhookHandler;
@@ -77,14 +77,16 @@ final class VkWebhookHandler implements WebhookHandler
         $peerId = $event->peerId;                    // куда отвечать
         $userId = $event->userId ?? $peerId;         // кто отправил: в личке совпадают, в беседе нет
 
-        // Подтверждение заказа: черновик из Redis превращается в запись в MySQL
+        // Подтверждение заказа: заказ в MySQL и ссылка на оплату
         if ($command === BotCommand::CONFIRM) {
-            return $this->reply(
-                $peerId,
-                app(OrderConfirmation::class)->confirm('vk', $userId),
-                VkKeyboard::chosenCampus(),
-            );
+            $text = app(OrderConfirmation::class)->confirm('vk', $userId);
+
+            // Порядок гарантирован: defer регистрируется до reply
+            defer(fn () => app(VkMessageSender::class)->send($peerId, BotTexts::paymentLinkCreating()));
+
+            return $this->reply($peerId, $text, VkKeyboard::chosenCampus());
         }
+
         if ($command === BotCommand::CANCEL) {
             return $this->reply(
                 $peerId,
@@ -118,7 +120,6 @@ final class VkWebhookHandler implements WebhookHandler
         [$text, $keyboard] = match ($command) {
             BotCommand::START => [BotTexts::welcome(), VkKeyboard::chosenCampus()],
             BotCommand::SEND_FILE => [BotTexts::fileInstructions(), null],
-            BotCommand::CANCEL => [BotTexts::cancelBtn(), VkKeyboard::chosenCampus()],
             default => [null, null],
         };
 
