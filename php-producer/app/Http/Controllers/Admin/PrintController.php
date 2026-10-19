@@ -33,8 +33,7 @@ final class PrintController
         return response()->json($this->payload($query, $campus));
     }
 
-    /** Отметить файл напечатанным — строка уходит из очереди */
-    /** Отметить файл напечатанным: строка уходит из очереди, клиент получает уведомление */
+
     /** Отметить файл напечатанным: строка уходит из очереди, клиент получает уведомление */
     public function markPrinted(Document $document): JsonResponse
     {
