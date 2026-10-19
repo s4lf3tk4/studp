@@ -112,20 +112,46 @@ final class ProcessIncomingDocument implements ShouldQueue
     }
 
     /** Скачивание в файл: для MAX нужен заголовок Authorization */
+        /** Скачивание в файл: для MAX нужен заголовок Authorization */
     private function download(string $absolutePath): void
     {
-        $command = 'curl -sS -m 300 --fail -L -o '.escapeshellarg($absolutePath);
+        // Без --fail: хотим увидеть настоящий HTTP-код, а не «curl 22»
+        $command = 'curl -sS -m 300 -L -o '.escapeshellarg($absolutePath)
+            .' -w '.escapeshellarg('%{http_code}');
 
         if ($this->platform === 'max') {
             $command .= ' -H '.escapeshellarg('Authorization: '.(string) config('services.max.access_token'));
         }
 
+        // VK отдаёт часть ссылок только с браузерным User-Agent
+        $command .= ' -H '.escapeshellarg('User-Agent: Mozilla/5.0 (compatible; studpechat/1.0)');
         $command .= ' '.escapeshellarg($this->fileUrl);
 
+        $output = [];
         exec($command, $output, $code);
 
-        if ($code !== 0) {
-            throw new RuntimeException('не скачал файл (код curl '.$code.')');
+        $status = (int) trim(implode('', $output));
+
+        if ($code !== 0 || $status >= 400) {
+            $prefix = is_file($absolutePath)
+                ? substr((string) file_get_contents($absolutePath, false, null, 0, 200), 0, 200)
+                : '';
+
+            Log::error('Не удалось скачать файл по ссылке платформы', [
+                'platform' => $this->platform,
+                'curl_code' => $code,
+                'http_status' => $status,
+                'url_host' => parse_url($this->fileUrl, PHP_URL_HOST),
+                'body_prefix' => $prefix,
+            ]);
+
+            if (is_file($absolutePath)) {
+                @unlink($absolutePath);
+            }
+
+            throw new RuntimeException(
+                'не скачал файл (HTTP '.$status.', curl '.$code.')'
+            );
         }
     }
 
