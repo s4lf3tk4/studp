@@ -91,38 +91,62 @@ Artisan::command('documents:list {--status=} {--limit=20}', function () {
     );
 })->purpose('Показать заказы: что оплачено, а что нет');
 
-Artisan::command('documents:prune {--unpaid-days=1} {--paid-days=7} {--days=7} {--dry-run}', function () {
+Artisan::command('documents:prune {--unpaid-days=1} {--paid-days=0} {--days=7} {--dry-run}', function () {
     $disk = Storage::disk('documents');
     $dry = (bool) $this->option('dry-run');
     $unpaidDays = (int) $this->option('unpaid-days');
     $paidDays = (int) $this->option('paid-days');
-    $deleted = 0;
+    $orders = 0;
+    $files = 0;
+    $orphans = 0;
 
-    // неоплаченные старше unpaid-days, оплаченные и напечатанные — старше paid-days
-    $documents = Document::query()
-        ->where(fn ($query) => $query
-            ->whereIn('status', [Document::STATUS_NEW, Document::STATUS_COUNTED, Document::STATUS_AWAITING_PAYMENT])
-            ->where('created_at', '<', now()->subDays($unpaidDays)))
-        ->orWhere(fn ($query) => $query
-            ->whereIn('status', [Document::STATUS_PAID, Document::STATUS_PRINTED])
-            ->where('created_at', '<', now()->subDays($paidDays)))
-        ->get();
+    // Неоплаченные: клиент не довёл заказ до оплаты — держать нечего
+    $query = Document::query()->where(fn ($sub) => $sub
+        ->whereIn('status', [Document::STATUS_NEW, Document::STATUS_COUNTED, Document::STATUS_AWAITING_PAYMENT])
+        ->where('created_at', '<', now()->subDays($unpaidDays)));
 
-    foreach ($documents as $document) {
-        $this->line("заказ #{$document->id} ({$document->status}) → {$document->file_path}");
-
-        if (! $dry) {
-            if ($document->file_path !== null) {
-                $disk->delete($document->file_path);
-            }
-
-            $document->delete();   // payments и receipts уходят каскадом
-        }
-
-        $deleted++;
+    // Оплаченные, но не напечатанные: по умолчанию НЕ трогаем.
+    // Это заказ, который типография ещё должна клиенту; 0 = хранить бессрочно.
+    if ($paidDays > 0) {
+        $query->orWhere(fn ($sub) => $sub
+            ->where('status', Document::STATUS_PAID)
+            ->where('created_at', '<', now()->subDays($paidDays)));
     }
 
-    // сироты: PDF, на который нет записи в БД
+    // printed и issued — архив: записи не удаляются никогда
+    foreach ($query->get() as $document) {
+        $this->line("заказ #{$document->id} ({$document->status}) → {$document->file_path}");
+        $orders++;
+
+        if ($dry) {
+            continue;
+        }
+
+        $path = $document->file_path;
+
+        // Сначала строка: если её удаление сорвётся, файл подберёт проход «сирот»
+        $document->delete();
+
+        if ($path === null) {
+            continue;
+        }
+
+        try {
+            if ($disk->exists($path)) {
+                $disk->delete($path);
+                $files++;
+            }
+        } catch (\Throwable $e) {
+            // Не роняем уборку из-за одного файла: его добьёт проход ниже
+            \Illuminate\Support\Facades\Log::error('Не удалось удалить файл заказа', [
+                'path' => $path,
+                'error' => $e->getMessage(),
+            ]);
+        }
+    }
+
+    // Сироты: PDF, на который нет записи в БД. Файлы напечатанных заказов
+    // защищены: их пути есть в file_path, значит попадают в $known.
     $known = array_flip(Document::query()->whereNotNull('file_path')->pluck('file_path')->all());
     $limit = now()->subDays((int) $this->option('days'))->getTimestamp();
 
@@ -132,15 +156,29 @@ Artisan::command('documents:prune {--unpaid-days=1} {--paid-days=7} {--days=7} {
         }
 
         $this->line("сирота: {$path}");
+        $orphans++;
 
-        if (! $dry) {
-            $disk->delete($path);
+        if ($dry) {
+            continue;
         }
 
-        $deleted++;
+        try {
+            $disk->delete($path);
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::error('Не удалось удалить файл-сироту', [
+                'path' => $path,
+                'error' => $e->getMessage(),
+            ]);
+        }
     }
 
-    $this->info(($dry ? 'будет удалено: ' : 'удалено: ').$deleted);
-})->purpose('Удалить неоплаченные и просроченные заказы вместе с файлами');
+    $this->info(sprintf(
+        '%s: заказов %d, файлов %d, сирот %d',
+        $dry ? 'будет удалено' : 'удалено',
+        $orders,
+        $files,
+        $orphans,
+    ));
+})->purpose('Удалить неоплаченные заказы и файлы без записей в БД');
 
-Schedule::command('documents:prune')->dailyAt('04:00');
+Schedule::command('documents:prune')->dailyAt('04:00')->withoutOverlapping();

@@ -108,3 +108,17 @@ button:disabled { opacity: .5; cursor: default; }
   background: #2b6cb0;
   color: #fff;
 }
+/* Фильтры по статусу */
+.chips { display: flex; gap: 6px; margin: 12px 0; flex-wrap: wrap; }
+
+.chips button {
+  background: #eef2f7;
+  color: #1f2430;
+  padding: 4px 10px;
+  font-size: 13px;
+}
+
+.chips button.active {
+  background: #2b6cb0;
+  color: #fff;
+}

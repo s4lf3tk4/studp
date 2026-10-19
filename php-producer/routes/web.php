@@ -46,5 +46,6 @@ Route::prefix('admin')->group(function (): void {
         Route::get('/print/campuses/{campus}', [PrintController::class, 'campus'])->name('admin.print.campus');
         Route::get('/print/{document}/file', [PrintController::class, 'file'])->name('admin.print.file');
         Route::post('/print/{document}/printed', [PrintController::class, 'markPrinted'])->name('admin.print.printed');
+        Route::post('/print/{document}/issued', [PrintController::class, 'issued'])->name('admin.print.issued');
         });
 });
