@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { api } from '../api';
+import PrintTab from './PrintTab.vue';
 
 const emit = defineEmits(['logged-out']);
 
@@ -240,11 +241,5 @@ onUnmounted(() => window.removeEventListener('hashchange', applyHash));
     </div>
   </template>
 
-  <div v-else class="card">
-    <h2>Печать</h2>
-    <p class="muted">
-      Раздел в разработке. Здесь будет очередь оплаченных заказов корпуса «{{ current.title }}»: файл, число страниц,
-      сумма и кнопка «Напечатано».
-    </p>
-  </div>
+  <PrintTab v-else :campus-id="currentId" :campus-title="current.title" />
 </template>

@@ -95,3 +95,16 @@ button:disabled { opacity: .5; cursor: default; }
 }
 
 .warn { color: #b45309; font-size: 13px; }
+/* Под-вкладки внутри раздела */
+.subtabs { display: flex; gap: 6px; }
+
+.subtabs button {
+  background: #eef2f7;
+  color: #1f2430;
+  padding: 6px 12px;
+}
+
+.subtabs button.active {
+  background: #2b6cb0;
+  color: #fff;
+}

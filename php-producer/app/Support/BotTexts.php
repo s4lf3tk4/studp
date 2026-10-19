@@ -94,6 +94,30 @@ final class BotTexts
     {
         return "Заказ №{$id} оплачен, передаю в печать.";
     }
+        /** Приходит, когда типография отметила документ напечатанным */
+    public static function orderPrinted(
+        int $id,
+        string $fileName,
+        int $pages,
+        string $campusTitle,
+        ?string $address = null,
+        ?string $room = null,
+    ): string {
+        $text = "Заказ №{$id} готов и напечатан.\n\n"
+            ."Файл: {$fileName}\n"
+            ."Страниц: {$pages}\n"
+            ."Корпус: {$campusTitle}";
+
+        if ($address !== null && $address !== '') {
+            $text .= "\nАдрес: {$address}";
+        }
+
+        if ($room !== null && $room !== '') {
+            $text .= "\nКабинет: {$room}";
+        }
+
+        return $text."\n\nЗаберите документ в часы работы типографии.";
+    }
 
     public static function fileCanceled(): string
     {

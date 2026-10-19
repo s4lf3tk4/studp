@@ -23,7 +23,6 @@ final class AdminSessionController
         // Новая сессия после входа — защита от фиксации сессии
         $request->session()->regenerate();
         $request->session()->put(config('admin.session_key', 'admin.authenticated'), true);
-        $request->session()->put(config('admin.session_login_key', 'admin.login'), $data['login']);
 
         return response()->json(['ok' => true]);
     }

@@ -14,7 +14,11 @@ final class EnsureAdmin
 {
     public function handle(Request $request, Closure $next): Response
     {
-        if (! $request->session()->get(config('admin.session_key', 'admin.authenticated'))) {
+        // Приводим к строке: null из конфига увёл бы проверку в get(null),
+        // а get(null) возвращает всю сессию — она всегда непустая, там _token
+        $key = (string) config('admin.session_key', 'admin.authenticated');
+
+        if ($key === '' || ! $request->session()->has($key)) {
             return response()->json(['message' => 'unauthenticated'], 401);
         }
 
