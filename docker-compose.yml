@@ -135,9 +135,10 @@ services:
       redis:
         condition: service_started
   
-    # Разовая сборка панели: npm-пакеты ставятся в том, на Windows ничего не нужно
+
+    # Разовая сборка панели: пакеты ставятся в том, на хосте ничего не нужно
   admin-build:
-    image: node:20-alpine
+    image: node:22-alpine
     profiles: ["admin"]
     working_dir: /work/admin
     volumes:
@@ -145,11 +146,13 @@ services:
       - ./php-producer/public:/work/php-producer/public
       - admin-node-modules:/work/admin/node_modules
       - admin-npm-cache:/root/.npm
-    command: sh -c "npm install && npm run build"
+    # npm ci ставит ровно то, что записано в package-lock.json,
+    # и сам очищает node_modules перед установкой
+    command: sh -c "npm ci && npm run build"
 
   # Dev-сервер с горячей перезагрузкой — по желанию, для правок панели
   admin-dev:
-    image: node:20-alpine
+    image: node:22-alpine
     profiles: ["admin"]
     working_dir: /work/admin
     environment:
@@ -163,7 +166,8 @@ services:
       - admin-npm-cache:/root/.npm
     networks:
       - studpechat
-    command: npm run dev
+    # Ставим зависимости только если том ещё пустой: иначе каждый up переустанавливал бы пакеты
+    command: sh -c "test -f node_modules/.package-lock.json || npm ci; npm run dev"
     depends_on:
       - webserver
 
