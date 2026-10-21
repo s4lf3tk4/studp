@@ -40,7 +40,7 @@ services:
     volumes:
       - ./php-producer:/var/www
       - ./docker/php/php.ini:/usr/local/etc/php/conf.d/custom.ini
-      - ./docker/php/zz-www.conf:/usr/local/etc/php-fpm.d/zz-www.conf   # ← добавить
+      - ./docker/php/zz-www.conf:/usr/local/etc/php-fpm.d/zz-www.conf
       - ./data/documents:/var/www/storage/app/private/documents
     depends_on:
       migrate:
