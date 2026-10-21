@@ -36,12 +36,11 @@ services:
 
   app:
     <<: *php
-    container_name: studpechat-app
     restart: unless-stopped
-    # volumes перечисляем полностью: YAML-слияние не склеивает списки, а заменяет
     volumes:
       - ./php-producer:/var/www
       - ./docker/php/php.ini:/usr/local/etc/php/conf.d/custom.ini
+      - ./docker/php/zz-www.conf:/usr/local/etc/php-fpm.d/zz-www.conf   # ← добавить
       - ./data/documents:/var/www/storage/app/private/documents
     depends_on:
       migrate:
@@ -51,10 +50,11 @@ services:
 
   queue:
     <<: *php
-    container_name: studpechat-queue
     user: "1000:1000"
     restart: unless-stopped
-    command: sh -c "while true; do php artisan queue:work --tries=2 --timeout=280 --max-jobs=10 --memory=384; sleep 1; done"
+    deploy:
+      replicas: 4
+    command: sh -c "while true; do php artisan queue:work --tries=2 --timeout=280 --max-jobs=200 --sleep=1 --memory=384; sleep 1; done"
     volumes:
       - ./php-producer:/var/www
       - ./docker/php/php.ini:/usr/local/etc/php/conf.d/custom.ini
