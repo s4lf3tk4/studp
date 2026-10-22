@@ -1,7 +1,6 @@
 <?php
 
 use App\Models\Document;
-use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Schedule;
@@ -51,10 +50,6 @@ Artisan::command('payments:paid {document} {--provider=}', function () {
 
     $this->line("POST {$base}/{$provider}/notify → HTTP {$response->status()} {$response->body()}");
 })->purpose('Имитировать успешную оплату: отправить уведомление провайдера');
-
-Artisan::command('inspire', function () {
-    $this->comment(Inspiring::quote());
-})->purpose('Display an inspiring quote');
 
 Artisan::command('documents:list {--status=} {--limit=20}', function () {
     $documents = Document::query()

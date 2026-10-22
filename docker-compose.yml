@@ -85,11 +85,11 @@ services:
     container_name: studpechat-db
     restart: unless-stopped
     environment:
-      # значения по умолчанию, чтобы up не падал при отсутствии .env
-      MYSQL_DATABASE: ${DB_DATABASE:-studpechat}
-      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:-secret}
-      MYSQL_PASSWORD: ${DB_PASSWORD:-secret}
-      MYSQL_USER: ${DB_USERNAME:-laravel}
+      MYSQL_DATABASE: ${DB_DATABASE:?DB_DATABASE is not set in .env}
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is not set in .env}
+      MYSQL_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is not set in .env}
+      MYSQL_USER: ${DB_USERNAME:?DB_USERNAME is not set in .env}
+      
     ports:
       - "127.0.0.1:3307:3306"   # наружу не торчит, с хоста доступен
     volumes:
