@@ -17,6 +17,7 @@ use App\Support\BotTexts;
 use App\Support\ScheduleText;
 use Illuminate\Support\Facades\Log;
 use Symfony\Component\HttpFoundation\Response;
+use App\Models\Document;
 
 final class MaxWebhookHandler implements WebhookHandler
 {
@@ -123,7 +124,11 @@ final class MaxWebhookHandler implements WebhookHandler
 
             return $this->reply(
                 $event,
-                BotTexts::campusChosen(BotCommand::CAMPUSES[$command], ScheduleText::forCampus($command)),
+                BotTexts::campusChosen(
+                    BotCommand::CAMPUSES[$command],
+                    ScheduleText::forCampus($command),
+                    Document::queuedForCampus($command),
+                ),
                 MaxKeyboard::cancelBtn(),
             );
         }

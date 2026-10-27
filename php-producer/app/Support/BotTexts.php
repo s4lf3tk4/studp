@@ -26,15 +26,51 @@ final class BotTexts
         return 'Сначала выберите корпус, в котором нужно распечатать:';
     }
     
-    public static function campusChosen(string $campusNumber, ?string $schedule = null): string
-    {
+        /** @param int|null $queued сколько оплаченных документов уже ждёт печати в этом корпусе */
+    public static function campusChosen(
+        string $campusNumber,
+        ?string $schedule = null,
+        ?int $queued = null,
+    ): string {
         $text = "Вы выбрали корпус {$campusNumber}.\n";
 
         if ($schedule !== null) {
             $text .= "\n{$schedule}\n";
         }
 
+        if ($queued !== null) {
+            $text .= "\n".self::queueLoad($queued);
+        }
+
         return $text."\nОтправьте файл в формате PDF\n";
+    }
+
+    /** Загруженность корпуса: сколько файлов стоит в очереди на печать */
+    private static function queueLoad(int $queued): string
+    {
+        if ($queued === 0) {
+            return 'Очередь на печать: свободно, напечатаем сразу.';
+        }
+
+        $word = self::plural($queued, 'документ', 'документа', 'документов');
+
+        return "В очереди на печать: {$queued} {$word}.";
+    }
+
+    private static function plural(int $count, string $one, string $few, string $many): string
+    {
+        $mod10 = $count % 10;
+        $mod100 = $count % 100;
+
+        if ($mod10 === 1 && $mod100 !== 11) {
+            return $one;
+        }
+
+        if ($mod10 >= 2 && $mod10 <= 4 && ($mod100 < 12 || $mod100 > 14)) {
+            return $few;
+        }
+
+        return $many;
     }
         /** @param int|null $pricePerPageKopecks цена за страницу корпуса: null — показываем только страницы */
     public static function pages(int $count, ?int $pricePerPageKopecks = null): string
@@ -163,4 +199,5 @@ final class BotTexts
     {
         return 'Не смог посчитать страницы: '.$reason;
     }
+
 }

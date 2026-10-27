@@ -59,6 +59,15 @@ final class Document extends Model
         $this->update(['status' => self::STATUS_PRINTED]);
     }
 
+        /** Сколько оплаченных документов ждёт печати в этом корпусе */
+    public static function queuedForCampus(string $campusCode): int
+    {
+        return self::query()
+            ->where('campus', $campusCode)
+            ->where('status', self::STATUS_PAID)
+            ->count();
+    }
+
     /** Клиент забрал документ: файла больше нет, запись остаётся в истории */
     public function markIssued(): void
     {

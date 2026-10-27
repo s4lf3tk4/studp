@@ -17,6 +17,7 @@ use App\Support\BotTexts;
 use App\Support\ScheduleText;
 use Illuminate\Support\Facades\Log;
 use Symfony\Component\HttpFoundation\Response;
+use App\Models\Document;
 
 final class VkWebhookHandler implements WebhookHandler
 {
@@ -112,6 +113,7 @@ final class VkWebhookHandler implements WebhookHandler
                 BotTexts::campusChosen(
                     BotCommand::CAMPUSES[$command],
                     ScheduleText::forCampus($command),
+                    Document::queuedForCampus($command),
                 ),
                 VkKeyboard::cancelBtn()
             );
