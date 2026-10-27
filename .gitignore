@@ -4,4 +4,11 @@
 
 # логи и временные файлы
 *.log
-get(vk
+
+stress-files/
+php-producer/public/stress/
+
+tmp/
+
+tmp/
+tmp/

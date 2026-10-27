@@ -43,21 +43,17 @@ return [
     // ],
 
     'vk' => [
-        // Код подтверждения адреса Callback API (настройки сообщества → Callback API)
         'confirmation_code' => env('VK_CONFIRMATION_CODE'),
-        // Токен доступа сообщества: нужен для users.get / groups.getById,
-        // потому что VK не присылает имя отправителя в самом событии
         'access_token' => env('VK_ACCESS_TOKEN'),
-        // Если задан, VK обязан присылать его в поле secret каждого события
         'secret_key' => env('VK_SECRET_KEY'),
         'api_version' => env('VK_API_VERSION', '5.199'),
+        'max_file_bytes' => (int) env('VK_MAX_FILE_BYTES', 30 * 1024 * 1024),
     ],
     'max' => [
-        // Токен бота: business.max.ru → Чат-боты → бот → ⋮ → Настройки
         'access_token' => env('MAX_ACCESS_TOKEN'),
-        // Секрет вебхука: MAX пришлёт его в заголовке X-Max-Bot-Api-Secret
         'webhook_secret' => env('MAX_WEBHOOK_SECRET'),
         'base_url' => env('MAX_API_URL', 'https://platform-api2.max.ru'),
+        'max_file_bytes' => (int) env('MAX_MAX_FILE_BYTES', 30 * 1024 * 1024),
     ],
     'payments' => [
         'unit_price' => (int) env('PAYMENT_UNIT_PRICE', 200),   // копейки за страницу
@@ -74,6 +70,9 @@ return [
             'payment_subject' => env('YOOKASSA_PAYMENT_SUBJECT', 'service'),
             'payment_mode' => env('YOOKASSA_PAYMENT_MODE', 'full_payment'),
         ],
+    ],
+    'documents' => [
+        'download_timeout' => (int) env('DOWNLOAD_TIMEOUT_SECONDS', 150),
     ],
 
 ];

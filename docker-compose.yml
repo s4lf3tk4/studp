@@ -52,9 +52,13 @@ services:
     <<: *php
     user: "1000:1000"
     restart: unless-stopped
+    stop_grace_period: 120s
     deploy:
-      replicas: 4
-    command: sh -c "while true; do php artisan queue:work --tries=2 --timeout=280 --max-jobs=200 --sleep=1 --memory=384; sleep 1; done"
+      replicas: 12
+      resources:
+        limits:
+          memory: 320M
+    command: sh -c "while true; do php artisan queue:work --tries=3 --timeout=280 --max-jobs=200 --sleep=1 --memory=192; sleep 1; done"
     volumes:
       - ./php-producer:/var/www
       - ./docker/php/php.ini:/usr/local/etc/php/conf.d/custom.ini
@@ -84,14 +88,14 @@ services:
     image: mysql:8.0
     container_name: studpechat-db
     restart: unless-stopped
+    command: --performance-schema=OFF --innodb-buffer-pool-size=128M
     environment:
       MYSQL_DATABASE: ${DB_DATABASE:?DB_DATABASE is not set in .env}
       MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is not set in .env}
       MYSQL_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is not set in .env}
       MYSQL_USER: ${DB_USERNAME:?DB_USERNAME is not set in .env}
-      
     ports:
-      - "127.0.0.1:3307:3306"   # наружу не торчит, с хоста доступен
+      - "127.0.0.1:3307:3306"
     volumes:
       - db-data:/var/lib/mysql
     networks:

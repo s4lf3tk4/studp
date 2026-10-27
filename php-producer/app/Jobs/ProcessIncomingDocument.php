@@ -23,10 +23,9 @@ final class ProcessIncomingDocument implements ShouldQueue
 
     /** Скачивание + подсчёт: меньше retry_after (REDIS_QUEUE_RETRY_AFTER=300) */
     public int $timeout = 280;
-    public int $tries = 2;
+    public int $tries = 3;
     public int $backoff = 10;
 
-    private const MAX_BYTES = 100 * 1024 * 1024;
 
     public function __construct(
         public readonly string $platform,       // 'max' | 'vk'
@@ -50,8 +49,8 @@ final class ProcessIncomingDocument implements ShouldQueue
             return;
         }
 
-        if ($this->size !== null && $this->size > self::MAX_BYTES) {
-            $this->reply('Файл больше '.intdiv(self::MAX_BYTES, 1048576).' МБ');
+        if ($this->size !== null && $this->size > $this->maxBytes()) {
+            $this->reply(BotTexts::tooBig(intdiv($this->maxBytes(), 1048576)));
 
             return;
         }
@@ -68,14 +67,26 @@ final class ProcessIncomingDocument implements ShouldQueue
             $this->download($absolute);
             $pages = $counter->countFromFile($absolute);
         } catch (RuntimeException $e) {
-            $disk->delete($path);   // не оставляем обрывок и файл без посчитанных страниц
+            $disk->delete($path);
+
+            $transient = str_starts_with($e->getMessage(), 'не скачал файл');
+            $hasTries = $this->attempts() < $this->tries;
 
             Log::warning('Файл не обработан', [
                 'platform' => $this->platform,
+                'attempt' => $this->attempts(),
+                'transient' => $transient,
                 'error' => $e->getMessage(),
             ]);
 
-            $this->reply('Не смог обработать файл: '.$e->getMessage());
+            // Сетевой сбой — повторяем; битый PDF повторять бессмысленно
+            if ($transient && $hasTries) {
+                $this->release($this->backoff);
+
+                return;
+            }
+
+            $this->reply(BotTexts::countFailed($e->getMessage()));
 
             return;
         }
@@ -110,15 +121,18 @@ final class ProcessIncomingDocument implements ShouldQueue
 
         $this->reply(BotTexts::pages($pages, $pricePerPage), $keyboard);
     }
+    
+    private function maxBytes(): int
+    {
+        return (int) config("services.{$this->platform}.max_file_bytes", 30 * 1024 * 1024);
+    }
 
-    /** Скачивание в файл: для MAX нужен заголовок Authorization */
         /** Скачивание в файл: для MAX нужен заголовок Authorization */
     private function download(string $absolutePath): void
     {
-        // Без --fail: хотим увидеть настоящий HTTP-код, а не «curl 22»
-        $command = 'curl -sS -m 300 -L -o '.escapeshellarg($absolutePath)
+        $timeout = (int) config('services.documents.download_timeout', 150);
+        $command = 'curl -sS -m '.$timeout.' --connect-timeout 10 -L -o '.escapeshellarg($absolutePath)
             .' -w '.escapeshellarg('%{http_code}');
-
         if ($this->platform === 'max') {
             $command .= ' -H '.escapeshellarg('Authorization: '.(string) config('services.max.access_token'));
         }

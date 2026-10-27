@@ -147,6 +147,17 @@ final class VkWebhookHandler implements WebhookHandler
             return $this->reply($event->peerId, BotTexts::noFileLink());
         }
 
+        $maxBytes = (int) config('services.vk.max_file_bytes', 30 * 1024 * 1024);
+
+        if (isset($event->doc['size']) && (int) $event->doc['size'] > $maxBytes) {
+            Log::info('VK: файл больше лимита', [
+                'user_id' => $event->userId,
+                'size' => (int) $event->doc['size'],
+            ]);
+
+            return $this->reply($event->peerId, BotTexts::tooBig(intdiv($maxBytes, 1048576)));
+        }
+
         $userId = $event->userId ?? $event->peerId;
         $campus = app(CampusChoice::class)->get('vk', $userId);
 
