@@ -55,20 +55,28 @@ return [
         'base_url' => env('MAX_API_URL', 'https://platform-api2.max.ru'),
         'max_file_bytes' => (int) env('MAX_MAX_FILE_BYTES', 30 * 1024 * 1024),
     ],
+    
     'payments' => [
-        'unit_price' => (int) env('PAYMENT_UNIT_PRICE', 200),   // копейки за страницу
+        'provider' => env('PAYMENT_PROVIDER', 'tinkoff'),
+
+        // Адреса, на которые возвращается покупатель и куда падают уведомления
         'public_url' => env('PAYMENT_PUBLIC_URL', env('APP_URL')),
-        'provider' => env('PAYMENT_PROVIDER', 'stub'),          // stub | yookassa
-        'webhook_url' => env('PAYMENT_WEBHOOK_URL', 'http://webserver/api/payments'),
-        'webhook_secret' => env('PAYMENT_WEBHOOK_SECRET', ''),  // пусто — проверка выключена
+        'webhook_url' => env('PAYMENT_WEBHOOK_URL', env('APP_URL').'/api/payments/tinkoff/notify'),
         'return_url' => env('PAYMENT_RETURN_URL', env('APP_URL')),
-        'yookassa' => [
-            'shop_id' => env('YOOKASSA_SHOP_ID'),
-            'secret_key' => env('YOOKASSA_SECRET_KEY'),
-            'vat_code' => (int) env('YOOKASSA_VAT_CODE', 1),
-            'tax_system_code' => env('YOOKASSA_TAX_SYSTEM_CODE'),
-            'payment_subject' => env('YOOKASSA_PAYMENT_SUBJECT', 'service'),
-            'payment_mode' => env('YOOKASSA_PAYMENT_MODE', 'full_payment'),
+
+        'tinkoff' => [
+            'terminal_key' => env('TINKOFF_TERMINAL_KEY', ''),
+            'password' => env('TINKOFF_TERMINAL_PASSWORD', ''),
+            'base_url' => env('TINKOFF_API_URL', 'https://securepay.tinkoff.ru/v2'),
+            'timeout' => (int) env('TINKOFF_TIMEOUT', 20),
+
+            'notification_url' => env('TINKOFF_NOTIFICATION_URL', env('PAYMENT_WEBHOOK_URL', env('APP_URL').'/api/payments/tinkoff/notify')),
+            'success_url' => env('TINKOFF_SUCCESS_URL', env('PAYMENT_PUBLIC_URL', env('APP_URL')).'/pay/success'),
+            'fail_url' => env('TINKOFF_FAIL_URL', env('PAYMENT_PUBLIC_URL', env('APP_URL')).'/pay/fail'),
+
+            // O — одностадийная оплата (сразу списание), T — двухстадийная (холдирование)
+            'pay_type' => env('TINKOFF_PAY_TYPE', 'O'),
+
         ],
     ],
     'documents' => [

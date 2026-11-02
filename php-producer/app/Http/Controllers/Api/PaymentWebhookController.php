@@ -2,51 +2,52 @@
 
 namespace App\Http\Controllers\Api;
 
-use App\Models\Document;
 use App\Models\Payment;
-use App\Services\BotNotifier;
-use App\Services\Payments\PaymentManager;
 use App\Services\Payments\PaymentNotification;
-use App\Support\BotTexts;
+use App\Services\Payments\PaymentSettlement;
+use App\Services\Payments\TinkoffGateway;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
-use InvalidArgumentException;
 use Symfony\Component\HttpFoundation\Response;
 
-/** Приём уведомлений платёжного провайдера: POST /api/payments/{provider}/notify */
+/** Уведомления Т-Банка об оплате: POST /api/payments/tinkoff/notify */
 final class PaymentWebhookController
 {
-    public function __invoke(Request $request, PaymentManager $manager, string $provider): Response
-    {
-        if (! $this->secretIsValid($request)) {
-            return response()->json(['ok' => false, 'error' => 'forbidden'], 403);
-        }
-
-        try {
-            $gateway = $manager->gateway($provider);
-        } catch (InvalidArgumentException $e) {
-            return response()->json(['ok' => false, 'error' => 'unknown_provider'], 404);
-        }
-
+    public function __invoke(
+        Request $request,
+        TinkoffGateway $gateway,
+        PaymentSettlement $settlement,
+    ): Response {
         $payload = $request->all();
         $notification = $gateway->parseNotification($payload);
 
         if ($notification === null) {
-            Log::warning('Платёжное уведомление не разобрано', ['provider' => $provider, 'payload' => $payload]);
+            Log::warning('T-Bank: уведомление не прошло проверку', ['payload' => $payload]);
 
-            return response()->json(['ok' => false, 'error' => 'bad_payload'], 422);
+            // Подпись не сходится: повторять бессмысленно, но и «OK» отдавать нельзя
+            return response('', 403);
         }
 
         $payment = $this->findPayment($notification);
 
         if ($payment === null) {
-            Log::warning('Платёжное уведомление по неизвестному счёту', [
-                'provider' => $provider,
+            Log::warning('T-Bank: уведомление по неизвестному счёту', [
                 'provider_payment_id' => $notification->providerPaymentId,
+                'document_id' => $notification->documentId,
             ]);
 
-            // Отвечаем 200: иначе провайдер будет повторять уведомление бесконечно
-            return response()->json(['ok' => true, 'found' => false]);
+            // 200 OK: иначе банк будет повторять уведомление сутками
+            return response('OK');
+        }
+
+        if ($notification->amountKopecks !== null && (int) $payment->amount !== $notification->amountKopecks) {
+            Log::error('T-Bank: сумма в уведомлении не совпадает со счётом', [
+                'payment_id' => $payment->id,
+                'expected' => (int) $payment->amount,
+                'got' => $notification->amountKopecks,
+            ]);
+
+            return response('', 409);
         }
 
         $payment->update([
@@ -55,10 +56,10 @@ final class PaymentWebhookController
         ]);
 
         if ($notification->paid) {
-            $this->markPaid($payment, $notification);
+            $settlement->markPaid($payment, $notification->providerPaymentId);
         }
 
-        return response()->json(['ok' => true]);
+        return response('OK');
     }
 
     private function findPayment(PaymentNotification $notification): ?Payment
@@ -81,29 +82,5 @@ final class PaymentWebhookController
         }
 
         return null;
-    }
-
-    private function markPaid(Payment $payment, PaymentNotification $notification): void
-    {
-        $document = $payment->document;
-
-        if ($document === null || $document->status === Document::STATUS_PAID) {
-            return;   // повторное уведомление ничего не меняет
-        }
-
-        $document->markPaid($notification->providerPaymentId);
-
-        $recipient = (int) ($document->chat_id ?? $document->external_user_id ?? 0);
-
-        if ($recipient > 0) {
-            app(BotNotifier::class)->send($document->platform, $recipient, BotTexts::orderPaid($document->id));
-        }
-    }
-
-    private function secretIsValid(Request $request): bool
-    {
-        $secret = (string) config('services.payments.webhook_secret');
-
-        return $secret === '' || hash_equals($secret, (string) $request->header('X-Payment-Secret'));
     }
 }

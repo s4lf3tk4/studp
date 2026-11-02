@@ -3,28 +3,33 @@
 namespace App\Services;
 
 use App\Models\Document;
-use App\Services\Payments\PaymentManager;
+use App\Services\Payments\TinkoffGateway;
 use App\Support\BotTexts;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
-/** Подтверждение заказа: черновик из Redis становится заказом в MySQL и счётом у провайдера */
+/** Подтверждение заказа: черновик из Redis становится заказом в MySQL и счётом в Т-Банке */
 final class OrderConfirmation
 {
+    /** В этих статусах деньги уже приняты или документ напечатан */
+    private const PAID_STATUSES = [
+        Document::STATUS_PAID,
+        Document::STATUS_PRINTED,
+        Document::STATUS_ISSUED,
+    ];
+
     public function __construct(private readonly DocumentStore $store) {}
 
-    /** Возвращает текст ответа пользователю */
-    public function confirm(string $platform, int $userId): string
+    public function confirm(string $platform, int $userId): ConfirmationResult
     {
         $draft = $this->store->get($platform, $userId);
 
         if ($draft === null || ! isset($draft['file_path'], $draft['pages'])) {
-            return BotTexts::orderNotFound();
+            return ConfirmationResult::text(BotTexts::orderNotFound());
         }
 
-        // Повторное нажатие «Подтвердить» не создаёт второй заказ
         if (isset($draft['document_id'])) {
-            return BotTexts::alreadyConfirmed((int) $draft['document_id'], $draft['payment_url'] ?? null);
+            return $this->repeat($platform, $userId, $draft);
         }
 
         try {
@@ -47,60 +52,107 @@ final class OrderConfirmation
                 'error' => $e->getMessage(),
             ]);
 
-            return BotTexts::orderFailed();
+            return ConfirmationResult::text(BotTexts::orderFailed());
         }
 
-        $paymentUrl = null;
-
-        try {
-            $paymentUrl = $this->createPayment($document, $draft);
-        } catch (\Throwable $e) {
-            // Заказ уже в БД, деньги не списаны: ссылку можно сформировать повторно,
-            // поэтому пользователю отдаём заказ без ссылки, а не «не смог создать»
-            Log::error('Не создал счёт у провайдера', [
-                'document_id' => $document->id,
-                'error' => $e->getMessage(),
-            ]);
-        }
+        [$paymentUrl, $paymentFailed] = $this->link($document, $draft);
 
         $this->store->confirmed($platform, $userId, $document->id, $paymentUrl);
 
-        return BotTexts::orderConfirmed(
+        $text = BotTexts::orderConfirmed(
             $document->id,
             (string) ($draft['title'] ?? 'файл'),
             (int) $draft['pages'],
             (int) ($draft['amount_kopecks'] ?? 0),
             $paymentUrl,
         );
+
+        if ($paymentFailed) {
+            $text .= "\n\n".BotTexts::paymentUnavailable();
+        }
+
+        return new ConfirmationResult($text, $paymentFailed, $paymentUrl);
+    }
+
+    /** @param  array<string, mixed>  $draft */
+    private function repeat(string $platform, int $userId, array $draft): ConfirmationResult
+    {
+        $documentId = (int) $draft['document_id'];
+        $storedUrl = (string) ($draft['payment_url'] ?? '');
+
+        if ($storedUrl !== '') {
+            return new ConfirmationResult(
+                BotTexts::alreadyConfirmed($documentId, $storedUrl),
+                false,
+                $storedUrl,
+            );
+        }
+
+        $document = Document::query()->find($documentId);
+
+        if ($document === null) {
+            $this->store->forget($platform, $userId);
+
+            return ConfirmationResult::text(BotTexts::orderNotFound());
+        }
+
+        if (in_array($document->status, self::PAID_STATUSES, true)) {
+            return new ConfirmationResult(BotTexts::alreadyConfirmed($documentId));
+        }
+
+        [$paymentUrl, $paymentFailed] = $this->link($document, $draft);
+        $this->store->confirmed($platform, $userId, $documentId, $paymentUrl);
+
+        $text = BotTexts::alreadyConfirmed($documentId, $paymentUrl);
+
+        if ($paymentFailed) {
+            $text .= "\n\n".BotTexts::paymentUnavailable();
+        }
+
+        return new ConfirmationResult($text, $paymentFailed, $paymentUrl);
     }
 
     /**
-     * Счёт создаётся, только если у корпуса задана цена.
-     *
      * @param  array<string, mixed>  $draft
+     * @return array{0: ?string, 1: bool}
      */
-    private function createPayment(Document $document, array $draft): ?string
+    private function link(Document $document, array $draft): array
     {
         if (! isset($draft['amount_kopecks'], $draft['price_per_page_kopecks'])) {
-            return null;
+            return [null, false];   // цена у корпуса не задана — счёт не нужен
         }
 
-        $gateway = app(PaymentManager::class)->default();
+        try {
+            return [$this->createPayment($document, $draft), false];
+        } catch (\Throwable $e) {
+            Log::error('Не создал счёт у провайдера', [
+                'document_id' => $document->id,
+                'error' => $e->getMessage(),
+            ]);
 
-        $payment = $document->payments()->create([
-            'uuid' => (string) Str::uuid(),
-            'pages' => $draft['pages'],
-            'unit_price' => $draft['price_per_page_kopecks'],
-            'amount' => $draft['amount_kopecks'],
-            'currency' => 'RUB',
-            'status' => 'pending',
-            'provider' => $gateway->name(),
-        ]);
+            return [null, true];
+        }
+    }
 
-        $url = $gateway->createPayment($payment);
+    /** @param  array<string, mixed>  $draft */
+    private function createPayment(Document $document, array $draft): string
+    {
+        $gateway = app(TinkoffGateway::class);
 
-        $payment->update(['confirmation_url' => $url]);
+        $payment = $document->payments()->where('status', 'pending')->latest('id')->first();
 
-        return $url;
+        if ($payment === null) {
+            $payment = $document->payments()->create([
+                'uuid' => (string) Str::uuid(),
+                'pages' => $draft['pages'],
+                'unit_price' => $draft['price_per_page_kopecks'],
+                'amount' => $draft['amount_kopecks'],
+                'currency' => 'RUB',
+                'status' => 'pending',
+                'provider' => $gateway->name(),
+            ]);
+        }
+
+        return $gateway->createPayment($payment);
     }
 }

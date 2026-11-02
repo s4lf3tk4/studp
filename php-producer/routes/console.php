@@ -6,7 +6,13 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Schedule;
 use Illuminate\Support\Facades\Storage;
 
-Artisan::command('payments:paid {document} {--provider=}', function () {
+use App\Models\Payment;
+use App\Services\Payments\PaymentManager;
+use App\Services\Payments\PaymentSettlement;
+use App\Services\Payments\TinkoffClient;
+use App\Services\Payments\TinkoffGateway;
+
+Artisan::command('payments:paid {document} {--status=CONFIRMED}', function () {
     $document = Document::query()->find((int) $this->argument('document'));
 
     if ($document === null) {
@@ -23,33 +29,75 @@ Artisan::command('payments:paid {document} {--provider=}', function () {
         return;
     }
 
-    $provider = (string) ($this->option('provider') ?: $payment->provider);
-    $base = rtrim((string) config('services.payments.webhook_url'), '/');
-    $secret = (string) config('services.payments.webhook_secret');
+    $client = TinkoffClient::fromConfig();
+    $status = strtoupper((string) $this->option('status'));
 
-    // Полезная нагрузка в том же виде, в каком её пришлёт провайдер
     $payload = [
-        'event' => 'payment.succeeded',
-        'object' => [
-            'id' => $payment->provider_payment_id ?: 'stub-'.$payment->uuid,
-            'status' => 'succeeded',
-            'paid' => true,
-            'amount' => [
-                'value' => number_format($payment->amount / 100, 2, '.', ''),
-                'currency' => $payment->currency,
-            ],
-            'metadata' => [
-                'document_id' => $document->id,
-                'payment_uuid' => $payment->uuid,
-            ],
-        ],
+        'TerminalKey' => $client->terminalKey(),
+        'OrderId' => TinkoffGateway::orderIdFor($payment),
+        'Success' => $status === 'CONFIRMED',
+        'Status' => $status,
+        'PaymentId' => $payment->provider_payment_id !== null && $payment->provider_payment_id !== ''
+            ? $payment->provider_payment_id
+            : (string) random_int(100000000, 999999999),
+        'ErrorCode' => $status === 'CONFIRMED' ? '0' : '100',
+        'Amount' => (int) $payment->amount,
     ];
+    $payload['Token'] = TinkoffSignature::make(
+        $payload,
+        (string) config('services.payments.tinkoff.password'),
+    );
 
-    $response = Http::withHeaders($secret !== '' ? ['X-Payment-Secret' => $secret] : [])
-        ->post($base.'/'.$provider.'/notify', $payload);
+    $base = rtrim((string) config('services.payments.webhook_url'), '/');
 
-    $this->line("POST {$base}/{$provider}/notify → HTTP {$response->status()} {$response->body()}");
-})->purpose('Имитировать успешную оплату: отправить уведомление провайдера');
+    $response = Http::asJson()->post($base, $payload);
+
+    $this->line("POST {$base} → HTTP {$response->status()} {$response->body()}");
+})->purpose('Имитировать уведомление Т-Банка об оплате (для локальной проверки)');
+
+Artisan::command('payments:check {--minutes=10} {--limit=50}', function () {
+    $gateway = app(TinkoffGateway::class);
+
+    if (! $gateway instanceof TinkoffGateway) {
+        $this->error('Провайдер не Т-Банк — проверка статусов не поддерживается');
+
+        return;
+    }
+
+    $settlement = app(PaymentSettlement::class);
+    $checked = 0;
+    $paid = 0;
+
+    $payments = Payment::query()
+        ->where('status', 'pending')
+        ->whereNotNull('provider_payment_id')
+        ->where('created_at', '<', now()->subMinutes((int) $this->option('minutes')))
+        ->with('document')
+        ->limit((int) $this->option('limit'))
+        ->get();
+
+    foreach ($payments as $payment) {
+        $checked++;
+
+        try {
+            $state = $gateway->status((string) $payment->provider_payment_id);
+        } catch (\Throwable $e) {
+            $this->warn("счёт {$payment->id}: {$e->getMessage()}");
+
+            continue;
+        }
+
+        if ($state['paid']) {
+            $settlement->markPaid($payment, (string) $payment->provider_payment_id);
+            $paid++;
+            $this->line("счёт {$payment->id}: оплачен (подтверждено через GetState)");
+        }
+    }
+
+    $this->info("проверено {$checked}, оплачено {$paid}");
+})->purpose('Сверить статусы неоплаченных счетов напрямую в Т-Банке');
+
+Schedule::command('payments:check')->everyFiveMinutes()->withoutOverlapping();
 
 Artisan::command('documents:list {--status=} {--limit=20}', function () {
     $documents = Document::query()

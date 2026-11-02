@@ -80,12 +80,14 @@ final class VkWebhookHandler implements WebhookHandler
 
         // Подтверждение заказа: заказ в MySQL и ссылка на оплату
         if ($command === BotCommand::CONFIRM) {
-            $text = app(OrderConfirmation::class)->confirm('vk', $userId);
+            $result = app(OrderConfirmation::class)->confirm('vk', $userId);
 
-            // Порядок гарантирован: defer регистрируется до reply
-            defer(fn () => app(VkMessageSender::class)->send($peerId, BotTexts::paymentLinkCreating()));
+            // Банк не ответил — возвращаем кнопки, чтобы клиент повторил или отменил
+            $keyboard = $result->paymentFailed
+                ? VkKeyboard::confirmOrCancel()
+                : VkKeyboard::chosenCampus();
 
-            return $this->reply($peerId, $text, VkKeyboard::chosenCampus());
+            return $this->reply($peerId, $result->text, $keyboard);
         }
 
         if ($command === BotCommand::CANCEL) {

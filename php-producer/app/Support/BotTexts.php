@@ -72,6 +72,24 @@ final class BotTexts
 
         return $many;
     }
+
+        /** Платёжный сервис не ответил — ссылку создать не удалось */
+    public static function paymentUnavailable(): string
+    {
+        return "Не удалось сформировать ссылку на оплату: платёжный сервис не ответил.\n\n"
+            .'Заказ сохранён. Нажмите «Подтвердить» ещё раз через минуту.';
+    }
+
+    public static function orderCanceled(int $id): string
+    {
+        return "Заказ №{$id} отменён, файл удалён.\n Можно прислать другой PDF.";
+    }
+
+    public static function orderCancelForbidden(int $id): string
+    {
+        return "Заказ №{$id} уже оплачен — отменить его кнопкой нельзя.\n"
+            .'Напишите в типографию, если нужно оформить возврат.';
+    }
         /** @param int|null $pricePerPageKopecks цена за страницу корпуса: null — показываем только страницы */
     public static function pages(int $count, ?int $pricePerPageKopecks = null): string
     {
@@ -160,10 +178,6 @@ final class BotTexts
         return "Файл отменён и удалён.\nВыберите корпус и пришлите другой PDF.";
     }
 
-    public static function orderCannotCancel(int $id): string
-    {
-        return "Заказ №{$id} уже создан — отменить его кнопкой нельзя.";
-    }
 
     public static function alreadyConfirmed(int $id, ?string $paymentUrl = null): string
     {

@@ -82,12 +82,13 @@ final class MaxWebhookHandler implements WebhookHandler
                 return response('ok');
             }
 
-            $text = app(OrderConfirmation::class)->confirm('max', $userId);
+            $result = app(OrderConfirmation::class)->confirm('max', $userId);
 
-            // «Формирую ссылку» отправляем новым сообщением, результат — ответом на callback
-            defer(fn () => app(MaxMessageSender::class)->send($userId, BotTexts::paymentLinkCreating()));
+            $keyboard = $result->paymentFailed
+                ? MaxKeyboard::confirmOrCancel()
+                : MaxKeyboard::chosenCampus();
 
-            return $this->reply($event, $text, MaxKeyboard::chosenCampus());
+            return $this->reply($event, $result->text, $keyboard);
         }
 
         if ($command === BotCommand::CANCEL) {
