@@ -18,6 +18,7 @@ use App\Support\ScheduleText;
 use Illuminate\Support\Facades\Log;
 use Symfony\Component\HttpFoundation\Response;
 use App\Models\Document;
+use App\Jobs\SendBotReply;
 
 final class MaxWebhookHandler implements WebhookHandler
 {
@@ -65,7 +66,7 @@ final class MaxWebhookHandler implements WebhookHandler
         }
 
         if ($event->text !== null && $event->text !== '' && $event->userId !== null) {
-            SendMaxReply::dispatchAfterResponse($event->userId, $event->text, $event->senderName);
+            return $this->reply($event, BotTexts::unknownCommand(), MaxKeyboard::chosenCampus());
         }
 
         // MAX считает событие доставленным только при HTTP 200
@@ -112,11 +113,16 @@ final class MaxWebhookHandler implements WebhookHandler
                 return response('ok');
             }
 
+            // Название берём из БД: его меняют в админке
+            $title = Campus::query()->where('code', $command)->value('title')
+                ?? BotCommand::CAMPUSES[$command]
+                ?? 'корпус';
+
             // Корпус выключен: кнопка помечена «не работает», выбор запрещён
             if (! Campus::isActive($command)) {
                 return $this->reply(
                     $event,
-                    BotTexts::campusInactive(BotCommand::CAMPUSES[$command]),
+                    BotTexts::campusInactive($title),
                     MaxKeyboard::chosenCampus(),
                 );
             }
@@ -126,7 +132,7 @@ final class MaxWebhookHandler implements WebhookHandler
             return $this->reply(
                 $event,
                 BotTexts::campusChosen(
-                    BotCommand::CAMPUSES[$command],
+                    $title,
                     ScheduleText::forCampus($command),
                     Document::queuedForCampus($command),
                 ),
@@ -197,38 +203,32 @@ final class MaxWebhookHandler implements WebhookHandler
         return $this->reply($event, BotTexts::counting());
     }
 
-    /** Кнопку подтверждаем ответом на callback и заменяем то же сообщение */
+    /** Ответ на callback заменяет сообщение; обычные ответы уходят через очередь */
     private function reply(MaxEvent $event, string $text, ?array $keyboard = null): Response
     {
-        $attachments = $keyboard === null ? null : [$keyboard];
-        $callbackId = $event->callbackId;
         $userId = $event->userId;
         $chatId = $event->chatId;
 
-        if ($callbackId !== null) {
-            defer(function () use ($callbackId, $text, $attachments, $userId, $chatId): void {
+        if ($event->callbackId !== null) {
+            $attachments = $keyboard === null ? null : [$keyboard];
+
+            defer(function () use ($event, $text, $attachments, $userId, $chatId): void {
                 $sender = app(MaxMessageSender::class);
 
-                // Если MAX не принял ответ на callback — отправляем обычным сообщением,
-                // иначе пользователь останется без реакции на нажатие
-                if ($sender->answer($callbackId, $text, $attachments)) {
+                if ($sender->answer($event->callbackId, $text, $attachments)) {
                     return;
                 }
 
-                if ($userId !== null) {
-                    $sender->send($userId, $text, $attachments);
-                } elseif ($chatId !== null) {
-                    $sender->sendToChat($chatId, $text, $attachments);
+                if ($userId !== null || $chatId !== null) {
+                    dispatch(SendBotReply::max($userId, $chatId, $text, $keyboard));
                 }
             });
 
             return response('ok');
         }
 
-        if ($userId !== null) {
-            defer(fn () => app(MaxMessageSender::class)->send($userId, $text, $attachments));
-        } elseif ($chatId !== null) {
-            defer(fn () => app(MaxMessageSender::class)->sendToChat($chatId, $text, $attachments));
+        if ($userId !== null || $chatId !== null) {
+            SendBotReply::max($userId, $chatId, $text, $keyboard)->dispatch();
         }
 
         return response('ok');

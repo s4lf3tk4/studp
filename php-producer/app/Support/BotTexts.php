@@ -26,13 +26,13 @@ final class BotTexts
         return 'Сначала выберите корпус, в котором нужно распечатать:';
     }
     
-        /** @param int|null $queued сколько оплаченных документов уже ждёт печати в этом корпусе */
+    /** @param int|null $queued сколько оплаченных документов уже ждёт печати в этом корпусе */
     public static function campusChosen(
-        string $campusNumber,
+        string $campusTitle,
         ?string $schedule = null,
         ?int $queued = null,
     ): string {
-        $text = "Вы выбрали корпус {$campusNumber}.\n";
+        $text = "Вы выбрали: {$campusTitle}.\n";
 
         if ($schedule !== null) {
             $text .= "\n{$schedule}\n";
@@ -71,6 +71,13 @@ final class BotTexts
         }
 
         return $many;
+    }
+
+        /** Неизвестный текст: подсказываем, что делать дальше */
+    public static function unknownCommand(): string
+    {
+        return "Не понял сообщение.\n"
+            .'Выберите корпус кнопкой ниже и пришлите PDF — посчитаю страницы и назову цену.';
     }
 
         /** Платёжный сервис не ответил — ссылку создать не удалось */

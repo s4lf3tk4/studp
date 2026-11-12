@@ -18,6 +18,7 @@ use App\Support\ScheduleText;
 use Illuminate\Support\Facades\Log;
 use Symfony\Component\HttpFoundation\Response;
 use App\Models\Document;
+use App\Jobs\SendBotReply;
 
 final class VkWebhookHandler implements WebhookHandler
 {
@@ -66,7 +67,7 @@ final class VkWebhookHandler implements WebhookHandler
         }
 
         if ($event->text !== null && $event->text !== '' && $event->peerId !== null) {
-            SendVkReply::dispatchAfterResponse($event->peerId, $event->text, $event->userId);
+            return $this->reply($event->peerId, BotTexts::unknownCommand(), VkKeyboard::chosenCampus());
         }
 
         // VK считает событие доставленным только при ответе "ok" и HTTP 200
@@ -99,11 +100,16 @@ final class VkWebhookHandler implements WebhookHandler
         }
 
         if (BotCommand::isCampus($command)) {
+            // Название берём из БД: его меняют в админке
+            $title = Campus::query()->where('code', $command)->value('title')
+                ?? BotCommand::CAMPUSES[$command]
+                ?? 'корпус';
+
             // Красная кнопка: корпус выключен — не запоминаем и не считаем
             if (! Campus::isActive($command)) {
                 return $this->reply(
                     $peerId,
-                    BotTexts::campusInactive(BotCommand::CAMPUSES[$command]),
+                    BotTexts::campusInactive($title),
                     VkKeyboard::chosenCampus(),
                 );
             }
@@ -113,7 +119,7 @@ final class VkWebhookHandler implements WebhookHandler
             return $this->reply(
                 $peerId,
                 BotTexts::campusChosen(
-                    BotCommand::CAMPUSES[$command],
+                    $title,
                     ScheduleText::forCampus($command),
                     Document::queuedForCampus($command),
                 ),
@@ -191,7 +197,7 @@ final class VkWebhookHandler implements WebhookHandler
 
     private function reply(int $peerId, string $text, ?array $keyboard = null): Response
     {
-        defer(fn () => app(VkMessageSender::class)->send($peerId, $text, $keyboard));
+        dispatch(SendBotReply::vk($peerId, $text, $keyboard));
 
         return response('ok');
     }
