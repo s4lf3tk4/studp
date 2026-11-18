@@ -7,53 +7,55 @@ use Illuminate\Support\Facades\Schedule;
 use Illuminate\Support\Facades\Storage;
 
 use App\Models\Payment;
-use App\Services\Payments\PaymentManager;
 use App\Services\Payments\PaymentSettlement;
 use App\Services\Payments\TinkoffClient;
 use App\Services\Payments\TinkoffGateway;
+use App\Services\Payments\TinkoffSignature;
 
-Artisan::command('payments:paid {document} {--status=CONFIRMED}', function () {
-    $document = Document::query()->find((int) $this->argument('document'));
 
-    if ($document === null) {
-        $this->error('Заказ #'.$this->argument('document').' не найден');
 
-        return;
-    }
+    Artisan::command('payments:paid {document} {--status=CONFIRMED}', function () {
+        $document = Document::query()->find((int) $this->argument('document'));
 
-    $payment = $document->payments()->latest('id')->first();
+        if ($document === null) {
+            $this->error('Заказ #'.$this->argument('document').' не найден');
 
-    if ($payment === null) {
-        $this->error('У заказа #'.$document->id.' нет счёта');
+            return;
+        }
 
-        return;
-    }
+        $payment = $document->payments()->latest('id')->first();
 
-    $client = TinkoffClient::fromConfig();
-    $status = strtoupper((string) $this->option('status'));
+        if ($payment === null) {
+            $this->error('У заказа #'.$document->id.' нет счёта');
 
-    $payload = [
-        'TerminalKey' => $client->terminalKey(),
-        'OrderId' => TinkoffGateway::orderIdFor($payment),
-        'Success' => $status === 'CONFIRMED',
-        'Status' => $status,
-        'PaymentId' => $payment->provider_payment_id !== null && $payment->provider_payment_id !== ''
-            ? $payment->provider_payment_id
-            : (string) random_int(100000000, 999999999),
-        'ErrorCode' => $status === 'CONFIRMED' ? '0' : '100',
-        'Amount' => (int) $payment->amount,
-    ];
-    $payload['Token'] = TinkoffSignature::make(
-        $payload,
-        (string) config('services.payments.tinkoff.password'),
-    );
+            return;
+        }
 
-    $base = rtrim((string) config('services.payments.webhook_url'), '/');
+        $client = TinkoffClient::fromConfig();
+        $status = strtoupper((string) $this->option('status'));
 
-    $response = Http::asJson()->post($base, $payload);
+        $payload = [
+            'TerminalKey' => $client->terminalKey(),
+            'OrderId' => TinkoffGateway::orderIdFor($payment),
+            'Success' => $status === 'CONFIRMED',
+            'Status' => $status,
+            'PaymentId' => $payment->provider_payment_id !== null && $payment->provider_payment_id !== ''
+                ? $payment->provider_payment_id
+                : (string) random_int(100000000, 999999999),
+            'ErrorCode' => $status === 'CONFIRMED' ? '0' : '100',
+            'Amount' => (int) $payment->amount,
+        ];
+        $payload['Token'] = TinkoffSignature::make(
+            $payload,
+            (string) config('services.payments.tinkoff.password'),
+        );
 
-    $this->line("POST {$base} → HTTP {$response->status()} {$response->body()}");
-})->purpose('Имитировать уведомление Т-Банка об оплате (для локальной проверки)');
+        $base = rtrim((string) config('services.payments.webhook_url'), '/');
+
+        $response = Http::asJson()->post($base, $payload);
+
+        $this->line("POST {$base} → HTTP {$response->status()} {$response->body()}");
+    })->purpose('Имитировать уведомление Т-Банка об оплате (для локальной проверки)');
 
 Artisan::command('payments:check {--minutes=10} {--limit=50}', function () {
     $gateway = app(TinkoffGateway::class);
@@ -134,30 +136,38 @@ Artisan::command('documents:list {--status=} {--limit=20}', function () {
     );
 })->purpose('Показать заказы: что оплачено, а что нет');
 
-Artisan::command('documents:prune {--unpaid-days=1} {--paid-days=0} {--days=7} {--dry-run}', function () {
+Artisan::command('documents:prune {--unpaid-days=1} {--paid-days=0} {--archive-days=7} {--days=7} {--dry-run}', function () {
     $disk = Storage::disk('documents');
     $dry = (bool) $this->option('dry-run');
     $unpaidDays = (int) $this->option('unpaid-days');
     $paidDays = (int) $this->option('paid-days');
+    $archiveDays = (int) $this->option('archive-days');
+
     $orders = 0;
     $files = 0;
     $orphans = 0;
 
-    // Неоплаченные: клиент не довёл заказ до оплаты — держать нечего
-    $query = Document::query()->where(fn ($sub) => $sub
+    // Неоплаченные: клиент не довёл заказ до оплаты
+    $targets = Document::query()->where(fn ($sub) => $sub
         ->whereIn('status', [Document::STATUS_NEW, Document::STATUS_COUNTED, Document::STATUS_AWAITING_PAYMENT])
         ->where('created_at', '<', now()->subDays($unpaidDays)));
 
-    // Оплаченные, но не напечатанные: по умолчанию НЕ трогаем.
-    // Это заказ, который типография ещё должна клиенту; 0 = хранить бессрочно.
+    // Оплаченные, но не напечатанные: 0 — хранить бессрочно
     if ($paidDays > 0) {
-        $query->orWhere(fn ($sub) => $sub
+        $targets->orWhere(fn ($sub) => $sub
             ->where('status', Document::STATUS_PAID)
             ->where('created_at', '<', now()->subDays($paidDays)));
     }
 
-    // printed и issued — архив: записи не удаляются никогда
-    foreach ($query->get() as $document) {
+    // Напечатанные и выданные: архив, живёт archive-days дней с момента
+    // последнего изменения статуса (0 — хранить бессрочно)
+    if ($archiveDays > 0) {
+        $targets->orWhere(fn ($sub) => $sub
+            ->whereIn('status', [Document::STATUS_PRINTED, Document::STATUS_ISSUED])
+            ->where('updated_at', '<', now()->subDays($archiveDays)));
+    }
+
+    foreach ($targets->get() as $document) {
         $this->line("заказ #{$document->id} ({$document->status}) → {$document->file_path}");
         $orders++;
 
@@ -167,7 +177,7 @@ Artisan::command('documents:prune {--unpaid-days=1} {--paid-days=0} {--days=7} {
 
         $path = $document->file_path;
 
-        // Сначала строка: если её удаление сорвётся, файл подберёт проход «сирот»
+        // Сначала строка: если удаление сорвётся, файл подберёт проход «сирот»
         $document->delete();
 
         if ($path === null) {
@@ -180,7 +190,6 @@ Artisan::command('documents:prune {--unpaid-days=1} {--paid-days=0} {--days=7} {
                 $files++;
             }
         } catch (\Throwable $e) {
-            // Не роняем уборку из-за одного файла: его добьёт проход ниже
             \Illuminate\Support\Facades\Log::error('Не удалось удалить файл заказа', [
                 'path' => $path,
                 'error' => $e->getMessage(),
@@ -188,8 +197,7 @@ Artisan::command('documents:prune {--unpaid-days=1} {--paid-days=0} {--days=7} {
         }
     }
 
-    // Сироты: PDF, на который нет записи в БД. Файлы напечатанных заказов
-    // защищены: их пути есть в file_path, значит попадают в $known.
+    // Сироты: PDF без записи в БД
     $known = array_flip(Document::query()->whereNotNull('file_path')->pluck('file_path')->all());
     $limit = now()->subDays((int) $this->option('days'))->getTimestamp();
 
@@ -222,6 +230,6 @@ Artisan::command('documents:prune {--unpaid-days=1} {--paid-days=0} {--days=7} {
         $files,
         $orphans,
     ));
-})->purpose('Удалить неоплаченные заказы и файлы без записей в БД');
+})->purpose('Удалить старые заказы и файлы без записей в БД');
 
 Schedule::command('documents:prune')->dailyAt('04:00')->withoutOverlapping();

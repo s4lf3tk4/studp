@@ -38,23 +38,10 @@ return new class extends Migration
             $table->timestamp('paid_at')->nullable();
             $table->timestamps();
         });
-
-        Schema::create('receipts', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('payment_id')->unique()->constrained()->cascadeOnDelete();
-            $table->foreignId('document_id')->constrained()->cascadeOnDelete();
-            $table->string('number')->unique();
-            $table->unsignedInteger('amount');
-            $table->string('currency', 3)->default('RUB');
-            $table->timestamp('issued_at');
-            $table->json('payload')->nullable();
-            $table->timestamps();
-        });
     }
 
     public function down(): void
     {
-        Schema::dropIfExists('receipts');
         Schema::dropIfExists('payments');
         Schema::dropIfExists('documents');
     }
