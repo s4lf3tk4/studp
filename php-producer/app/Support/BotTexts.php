@@ -311,6 +311,16 @@ final class BotTexts
             ."Файлы в этом режиме бот не считает.\n\n"
             .'Кнопка «Вернуться к боту» всегда внизу.';
     }
+        /** Уведомление оператору: кто перешёл в режим оператора */
+    public static function operatorRequested(?string $name, int $userId): string
+    {
+        $who = $name !== null && trim($name) !== '' ? trim($name) : 'имя не получено';
+
+        return "Пользователь перешёл в режим оператора.\n\n"
+            ."Имя: {$who}\n"
+            ."id: {$userId}\n\n"
+            .'Ответить: ВК → «Сообщения сообщества» → этот диалог.';
+    }
 
     /** Вернулись к боту */
     public static function backToBot(): string

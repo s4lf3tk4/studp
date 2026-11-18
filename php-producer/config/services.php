@@ -48,6 +48,7 @@ return [
         'secret_key' => env('VK_SECRET_KEY'),
         'api_version' => env('VK_API_VERSION', '5.199'),
         'max_file_bytes' => (int) env('VK_MAX_FILE_BYTES', 30 * 1024 * 1024),
+        'operator_id' => (int) env('VK_OPERATOR_ID', 0),
     ],
     'max' => [
         'access_token' => env('MAX_ACCESS_TOKEN'),

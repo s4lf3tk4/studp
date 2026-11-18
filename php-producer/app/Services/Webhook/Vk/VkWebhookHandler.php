@@ -96,17 +96,30 @@ final class VkWebhookHandler implements WebhookHandler
         return response('ok');
     }
 
-    /** Переход в режим оператора: запоминаем имя и отдаём кнопку возврата */
+    /** Переход в режим оператора: запоминаем имя, уведомляем оператора, даём кнопку возврата */
     private function switchToOperator(int $peerId, int $userId): Response
     {
-        ChatState::setMode(
-            'vk',
-            $userId,
-            ChatState::MODE_OPERATOR,
-            app(VkUserResolver::class)->name($userId),
-        );
+        $name = app(VkUserResolver::class)->name($userId);
+
+        ChatState::setMode('vk', $userId, ChatState::MODE_OPERATOR, $name);
+
+        $this->notifyOperator($userId, $name);
 
         return $this->reply($peerId, BotTexts::operatorWelcome(), VkKeyboard::backToBot());
+    }
+
+    /** Оператору на его личный id уходит сообщение от лица сообщества */
+    private function notifyOperator(int $userId, ?string $name): void
+    {
+        $operatorId = (int) config('services.vk.operator_id', 0);
+
+        if ($operatorId <= 0) {
+            Log::warning('Переход в режим оператора, но VK_OPERATOR_ID не задан', ['user_id' => $userId]);
+
+            return;
+        }
+
+        dispatch(SendBotReply::vk($operatorId, BotTexts::operatorRequested($name, $userId)));
     }
 
     /** Возврат к боту: обычное меню с корпусами */
