@@ -11,7 +11,7 @@ final class VkKeyboard
     /** VK разрешает не больше 5 кнопок в ряду */
     private const PER_ROW = 5;
 
-    /** Кнопки корпусов: состав и цвет берутся из БД, кода в списке нет */
+    /** Главное меню: корпуса из БД + вход в режим оператора */
     public static function chosenCampus(): ?array
     {
         $campuses = self::campuses();
@@ -34,9 +34,23 @@ final class VkKeyboard
             ];
         }
 
+        $rows = array_chunk($buttons, self::PER_ROW);
+
+        // Внизу всегда есть переход к живому оператору — отдельным рядом
+        $rows[] = [
+            [
+                'action' => [
+                    'type' => 'text',
+                    'label' => 'Оператор',
+                    'payload' => json_encode(['command' => BotCommand::CHAT_OPERATOR], JSON_UNESCAPED_UNICODE),
+                ],
+                'color' => 'secondary',
+            ],
+        ];
+
         return [
             'one_time' => false,
-            'buttons' => array_chunk($buttons, self::PER_ROW),
+            'buttons' => $rows,
         ];
     }
 
@@ -53,6 +67,26 @@ final class VkKeyboard
                             'payload' => json_encode(['command' => BotCommand::CANCEL], JSON_UNESCAPED_UNICODE),
                         ],
                         'color' => 'negative',
+                    ],
+                ],
+            ],
+        ];
+    }
+
+    /** Режим оператора: единственная кнопка — возврат к боту, всегда на месте */
+    public static function backToBot(): array
+    {
+        return [
+            'one_time' => false,
+            'buttons' => [
+                [
+                    [
+                        'action' => [
+                            'type' => 'text',
+                            'label' => 'Вернуться к боту',
+                            'payload' => json_encode(['command' => BotCommand::CHAT_BOT], JSON_UNESCAPED_UNICODE),
+                        ],
+                        'color' => 'primary',
                     ],
                 ],
             ],

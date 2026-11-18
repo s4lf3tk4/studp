@@ -12,6 +12,8 @@ final class BotCommand
     public const CONFIRM = 'confirm';
     public const PRINT_BW = 'print_bw';
     public const PRINT_COLOR = 'print_color';
+    public const CHAT_OPERATOR = 'chat_operator';
+    public const CHAT_BOT = 'chat_bot';
 
     /** Команды кнопок режима печати => режим в заказе */
     public const MODES = [
@@ -36,6 +38,11 @@ final class BotCommand
         'цветной' => self::PRINT_COLOR,
         'цветная' => self::PRINT_COLOR,
         'цвет' => self::PRINT_COLOR,
+        'оператор' => self::CHAT_OPERATOR,
+        'связаться с оператором' => self::CHAT_OPERATOR,
+        'к боту' => self::CHAT_BOT,
+        'вернуться к боту' => self::CHAT_BOT,
+        'бот' => self::CHAT_BOT,
     ];
 
     /** «Корпус 2» текстом → campus2: код одинаковый для клавиатуры и для БД */
@@ -87,5 +94,11 @@ final class BotCommand
     public static function mode(string $command): ?string
     {
         return self::MODES[$command] ?? null;
+    }
+
+    /** Переключение между ботом и оператором: работает в любом состоянии */
+    public static function isChatSwitch(string $command): bool
+    {
+        return in_array($command, [self::CHAT_OPERATOR, self::CHAT_BOT], true);
     }
 }

@@ -5,6 +5,7 @@ namespace App\Services\Webhook\Vk;
 use App\Jobs\ProcessIncomingDocument;
 use App\Jobs\SendBotReply;
 use App\Models\Campus;
+use App\Models\ChatState;
 use App\Models\Document;
 use App\Services\CampusChoice;
 use App\Services\DocumentStore;
@@ -12,6 +13,7 @@ use App\Services\EventStore;
 use App\Services\OrderCancellation;
 use App\Services\OrderConfirmation;
 use App\Services\PrintModeChoice;
+use App\Services\VkUserResolver;
 use App\Services\Webhook\BotCommand;
 use App\Services\Webhook\WebhookHandler;
 use App\Support\BotTexts;
@@ -54,23 +56,65 @@ final class VkWebhookHandler implements WebhookHandler
             'attachments' => $event->message['attachments'] ?? [],
         ]);
 
-        // Кнопка «Начать», «Отправить файл», «Корпус N», «ЧБ», «Цветной», «Подтвердить», «Отмена» или /start
+        // «Начать», «Отправить файл», «Корпус N», «ЧБ», «Цветной», «Оператор», «К боту»
         $command = BotCommand::detect($event->message, $event->text);
 
-        if ($event->peerId !== null && $command !== null) {
+        if ($event->peerId === null) {
+            return response('ok');
+        }
+
+        // Кто отправил: в личке совпадает с peer_id, в беседе — нет
+        $userId = $event->userId ?? $event->peerId;
+
+        // Переключение режима работает всегда, в любом состоянии
+        if ($command === BotCommand::CHAT_OPERATOR) {
+            return $this->switchToOperator($event->peerId, $userId);
+        }
+
+        if ($command === BotCommand::CHAT_BOT) {
+            return $this->switchToBot($event->peerId, $userId);
+        }
+
+        // Режим оператора: переписка идёт в интерфейсе сообщества ВК, бот не отвечает
+        if (ChatState::isOperator('vk', $userId)) {
+            return response('ok');
+        }
+
+        if ($command !== null) {
             return $this->handleCommand($event, $command);
         }
 
-        if ($event->doc !== null && $event->peerId !== null) {
+        if ($event->doc !== null) {
             return $this->handleDocument($event);
         }
 
-        if ($event->text !== null && $event->text !== '' && $event->peerId !== null) {
+        if ($event->text !== null && $event->text !== '') {
             return $this->reply($event->peerId, BotTexts::unknownCommand(), VkKeyboard::chosenCampus());
         }
 
         // VK считает событие доставленным только при ответе "ok" и HTTP 200
         return response('ok');
+    }
+
+    /** Переход в режим оператора: запоминаем имя и отдаём кнопку возврата */
+    private function switchToOperator(int $peerId, int $userId): Response
+    {
+        ChatState::setMode(
+            'vk',
+            $userId,
+            ChatState::MODE_OPERATOR,
+            app(VkUserResolver::class)->name($userId),
+        );
+
+        return $this->reply($peerId, BotTexts::operatorWelcome(), VkKeyboard::backToBot());
+    }
+
+    /** Возврат к боту: обычное меню с корпусами */
+    private function switchToBot(int $peerId, int $userId): Response
+    {
+        ChatState::setMode('vk', $userId, ChatState::MODE_BOT);
+
+        return $this->reply($peerId, BotTexts::backToBot(), VkKeyboard::chosenCampus());
     }
 
     private function handleCommand(VkEvent $event, string $command): Response
