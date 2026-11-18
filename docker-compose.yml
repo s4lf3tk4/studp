@@ -52,13 +52,13 @@ services:
     <<: *php
     user: "1000:1000"
     restart: unless-stopped
-    stop_grace_period: 120s
+    stop_grace_period: 300s
     deploy:
-      replicas: 12
+      replicas: 4
       resources:
         limits:
           memory: 320M
-    command: sh -c "while true; do php artisan queue:work --tries=3 --timeout=280 --max-jobs=200 --sleep=1 --memory=192; sleep 1; done"
+    command: php artisan queue:work --tries=3 --timeout=280 --max-jobs=200 --sleep=1 --memory=192
     volumes:
       - ./php-producer:/var/www
       - ./docker/php/php.ini:/usr/local/etc/php/conf.d/custom.ini
@@ -73,10 +73,10 @@ services:
     <<: *php
     user: "1000:1000"
     restart: unless-stopped
-    stop_grace_period: 30s
+    stop_grace_period: 60s
     deploy:
       replicas: 1
-    command: sh -c "while true; do php artisan queue:work --queue=replies --sleep=0.2 --tries=3 --timeout=30 --memory=128; sleep 1; done"
+    command: php artisan queue:work --queue=replies --sleep=0.2 --tries=3 --timeout=30 --memory=128
     volumes:
       - ./php-producer:/var/www
       - ./docker/php/php.ini:/usr/local/etc/php/conf.d/custom.ini
@@ -129,6 +129,7 @@ services:
     image: redis:7-alpine
     container_name: studpechat-redis
     restart: unless-stopped
+    command: redis-server --maxmemory 64mb --maxmemory-policy noeviction
     ports:
       - "127.0.0.1:6380:6379"
     volumes:
