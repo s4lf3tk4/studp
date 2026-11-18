@@ -1,6 +1,7 @@
 <?php
 
 use App\Models\Document;
+use App\Support\PrintMode;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Schedule;
@@ -12,6 +13,7 @@ use App\Services\Payments\PaymentSettlement;
 use App\Services\Payments\TinkoffClient;
 use App\Services\Payments\TinkoffGateway;
 use App\Services\Payments\TinkoffSignature;
+
 
 
 
@@ -114,7 +116,7 @@ Artisan::command('documents:list {--status=} {--limit=20}', function () {
     }
 
     $this->table(
-        ['id', 'платформа', 'пользователь', 'корпус', 'стр.', 'сумма', 'статус', 'оплачен', 'создан', 'файл'],
+        ['id', 'платформа', 'пользователь', 'корпус', 'стр.', 'печать', 'сумма', 'статус', 'оплачен', 'создан', 'файл'],
         $documents->map(function (Document $document) {
             $payment = $document->payments->sortByDesc('id')->first();
 
@@ -124,6 +126,7 @@ Artisan::command('documents:list {--status=} {--limit=20}', function () {
                 $document->external_user_id,
                 $document->campus ?? '—',
                 $document->pages ?? '—',
+                PrintMode::label($document->print_mode) ?? '—',
                 $payment !== null ? number_format($payment->amount / 100, 2, ',', ' ').' ₽' : '—',
                 $document->status,
                 $payment?->paid_at?->format('d.m H:i') ?? '—',

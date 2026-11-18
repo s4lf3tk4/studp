@@ -169,6 +169,7 @@ const markIssued = async (file) => {
           <th>Файл</th>
           <th v-if="subtab === 'all'">Корпус</th>
           <th>Страниц</th>
+          <th>Печать</th>
           <th>Сумма</th>
           <th>Статус</th>
           <th>Создан</th>
@@ -185,6 +186,7 @@ const markIssued = async (file) => {
           </td>
           <td v-if="subtab === 'all'">{{ file.campus }}</td>
           <td>{{ file.pages }}</td>
+          <td>{{ file.print_mode_label }}</td>
           <td>{{ file.amount }}</td>
           <td>
             <span :class="file.status === 'paid' ? 'warn' : file.status === 'printed' ? 'ok' : 'muted'">

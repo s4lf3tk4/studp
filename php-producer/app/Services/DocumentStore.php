@@ -6,7 +6,7 @@ use Illuminate\Support\Facades\Cache;
 
 /**
  * Черновик заказа между отправкой файла и подтверждением: путь к файлу,
- * корпус, страницы и сумма. Живёт в Redis; источник истины — таблицы documents/payments.
+ * корпус, страницы, режим печати и сумма. Живёт в Redis; источник истины — documents/payments.
  */
 final class DocumentStore
 {
@@ -34,6 +34,7 @@ final class DocumentStore
             'file_path' => null,
             'size' => null,
             'pages' => null,
+            'print_mode' => null,             // bw | color — выберет клиент после подсчёта
             'status' => 'new',
             'created_at' => now()->toIso8601String(),
         ], self::TTL_UNPAID);
@@ -53,7 +54,7 @@ final class DocumentStore
         $this->put($platform, $userId, ['file_path' => $path, 'size' => $size]);
     }
 
-    /** Число страниц, цена корпуса и сумма */
+    /** Число страниц; прошлый выбор режима сбрасывается — он относился к другому файлу */
     public function pages(
         string $platform,
         int $userId,
@@ -62,10 +63,24 @@ final class DocumentStore
     ): void {
         $this->put($platform, $userId, [
             'pages' => $pages,
+            'print_mode' => null,
             'price_per_page_kopecks' => $pricePerPageKopecks,
             'amount_kopecks' => $pricePerPageKopecks !== null ? $pages * $pricePerPageKopecks : null,
             'status' => 'counted',
             'counted_at' => now()->toIso8601String(),
+        ]);
+    }
+
+    /** Режим печати выбран: цена за страницу и сумма пересчитываются под него */
+    public function mode(string $platform, int $userId, string $mode, int $pricePerPageKopecks): void
+    {
+        $entry = $this->get($platform, $userId);
+        $pages = isset($entry['pages']) ? (int) $entry['pages'] : null;
+
+        $this->put($platform, $userId, [
+            'print_mode' => $mode,
+            'price_per_page_kopecks' => $pricePerPageKopecks,
+            'amount_kopecks' => $pages !== null ? $pages * $pricePerPageKopecks : null,
         ]);
     }
 

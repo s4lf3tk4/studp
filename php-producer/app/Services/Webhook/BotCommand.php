@@ -2,37 +2,44 @@
 
 namespace App\Services\Webhook;
 
+use App\Support\PrintMode;
+
 final class BotCommand
 {
     public const START = 'start';
     public const SEND_FILE = 'send_file';
-    public const CAMPUS1 = 'campus1';
-    public const CAMPUS2 = 'campus2';
-    public const CAMPUS3 = 'campus3';
-    public const CAMPUS4 = 'campus4';
     public const CANCEL = 'cancel';
     public const CONFIRM = 'confirm';
+    public const PRINT_BW = 'print_bw';
+    public const PRINT_COLOR = 'print_color';
 
-    /** Команда => подпись кнопки: единственное место, где перечислены корпуса */
-    public const CAMPUSES = [
-        self::CAMPUS1 => 'Корпус 1',
-        self::CAMPUS2 => 'Корпус 2',
-        self::CAMPUS3 => 'Корпус 3',
-        self::CAMPUS4 => 'Корпус 4',
+    /** Команды кнопок режима печати => режим в заказе */
+    public const MODES = [
+        self::PRINT_BW => PrintMode::BW,
+        self::PRINT_COLOR => PrintMode::COLOR,
     ];
 
-    /** Подписи кнопок: VK при нажатии текстовой кнопки присылает её текст (в нижнем регистре) */
+    /**
+     * Подписи текстовых команд. Корпусов здесь нет: они живут в БД,
+     * а «Корпус 2» текстом разбирается шаблоном ниже.
+     */
     private const LABELS = [
         'начать' => self::START,
         '/start' => self::START,
         'отправить файл' => self::SEND_FILE,
-        'корпус 1' => self::CAMPUS1,
-        'корпус 2' => self::CAMPUS2,
-        'корпус 3' => self::CAMPUS3,
-        'корпус 4' => self::CAMPUS4,
-        'отмена'=> self::CANCEL,
+        'отмена' => self::CANCEL,
         'подтвердить' => self::CONFIRM,
+        'чб' => self::PRINT_BW,
+        'ч/б' => self::PRINT_BW,
+        'чёрно-белый' => self::PRINT_BW,
+        'черно-белый' => self::PRINT_BW,
+        'цветной' => self::PRINT_COLOR,
+        'цветная' => self::PRINT_COLOR,
+        'цвет' => self::PRINT_COLOR,
     ];
+
+    /** «Корпус 2» текстом → campus2: код одинаковый для клавиатуры и для БД */
+    private const CAMPUS_PATTERN = '/^корпус\s*(\d{1,3})$/u';
 
     public static function detect(array $message, ?string $text): ?string
     {
@@ -49,11 +56,36 @@ final class BotCommand
             return $command;
         }
 
-        return self::LABELS[mb_strtolower(trim((string) $text))] ?? null;
+        $text = mb_strtolower(trim((string) $text));
+
+        if (isset(self::LABELS[$text])) {
+            return self::LABELS[$text];
+        }
+
+        if (preg_match(self::CAMPUS_PATTERN, $text, $matches) === 1) {
+            return 'campus'.$matches[1];
+        }
+
+        return null;
     }
 
+    /**
+     * Похоже ли на код корпуса. Существует ли такой корпус — знает только БД,
+     * поэтому хендлер сразу делает запрос и на пустой ответ говорит «не понял».
+     */
     public static function isCampus(string $command): bool
     {
-        return array_key_exists($command, self::CAMPUSES);
+        return preg_match('/^campus\d{1,3}$/', $command) === 1;
+    }
+
+    public static function isMode(string $command): bool
+    {
+        return isset(self::MODES[$command]);
+    }
+
+    /** Команда кнопки => режим печати (bw | color) */
+    public static function mode(string $command): ?string
+    {
+        return self::MODES[$command] ?? null;
     }
 }

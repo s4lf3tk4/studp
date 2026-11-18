@@ -11,12 +11,18 @@ final class VkKeyboard
     /** VK разрешает не больше 5 кнопок в ряду */
     private const PER_ROW = 5;
 
-    /** Кнопки корпусов: цвет зависит от campuses.is_active */
-    public static function chosenCampus(): array
+    /** Кнопки корпусов: состав и цвет берутся из БД, кода в списке нет */
+    public static function chosenCampus(): ?array
     {
+        $campuses = self::campuses();
+
+        if ($campuses === []) {
+            return null;   // корпуса не заведены — отправим текст без кнопок
+        }
+
         $buttons = [];
 
-        foreach (self::campuses() as $code => $campus) {
+        foreach ($campuses as $code => $campus) {
             $buttons[] = [
                 'action' => [
                     'type' => 'text',
@@ -53,35 +59,34 @@ final class VkKeyboard
         ];
     }
 
-    /** @return array<string, array{label: string, active: bool}> */
-    private static function campuses(): array
+    /** Выбор принтера: у ЧБ и цветного разная цена за страницу */
+    public static function printMode(): array
     {
-        try {
-            $rows = Campus::query()->orderBy('id')->get();
-
-            if ($rows->isNotEmpty()) {
-                $campuses = [];
-
-                foreach ($rows as $campus) {
-                    $campuses[(string) $campus->code] = [
-                        'label' => (string) $campus->title,
-                        'active' => (bool) $campus->is_active,
-                    ];
-                }
-
-                return $campuses;
-            }
-        } catch (\Throwable $e) {
-            Log::warning('Не прочитал корпуса для клавиатуры: '.$e->getMessage());
-        }
-
-        // БД пуста или недоступна — берём константы, чтобы бот не остался без кнопок
-        return array_map(
-            fn (string $label): array => ['label' => $label, 'active' => true],
-            BotCommand::CAMPUSES,
-        );
+        return [
+            'one_time' => false,
+            'buttons' => [
+                [
+                    [
+                        'action' => [
+                            'type' => 'text',
+                            'label' => 'ЧБ',
+                            'payload' => json_encode(['command' => BotCommand::PRINT_BW], JSON_UNESCAPED_UNICODE),
+                        ],
+                        'color' => 'primary',
+                    ],
+                    [
+                        'action' => [
+                            'type' => 'text',
+                            'label' => 'Цветной',
+                            'payload' => json_encode(['command' => BotCommand::PRINT_COLOR], JSON_UNESCAPED_UNICODE),
+                        ],
+                        'color' => 'positive',
+                    ],
+                ],
+            ],
+        ];
     }
-        /** Кнопка «Подтвердить» — после подсчёта страниц */
+
     /** Кнопки решения по заказу: подтвердить оплату или отменить файл */
     public static function confirmOrCancel(): array
     {
@@ -108,5 +113,26 @@ final class VkKeyboard
                 ],
             ],
         ];
+    }
+
+    /** @return array<string, array{label: string, active: bool}> */
+    private static function campuses(): array
+    {
+        try {
+            $campuses = [];
+
+            foreach (Campus::query()->orderBy('id')->get() as $campus) {
+                $campuses[(string) $campus->code] = [
+                    'label' => (string) $campus->title,
+                    'active' => (bool) $campus->is_active,
+                ];
+            }
+
+            return $campuses;
+        } catch (\Throwable $e) {
+            Log::error('Не прочитал корпуса для клавиатуры: '.$e->getMessage());
+
+            return [];
+        }
     }
 }

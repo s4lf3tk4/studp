@@ -3,22 +3,21 @@
 namespace App\Services\Webhook\Vk;
 
 use App\Jobs\ProcessIncomingDocument;
-use App\Jobs\SendVkReply;
+use App\Jobs\SendBotReply;
 use App\Models\Campus;
+use App\Models\Document;
 use App\Services\CampusChoice;
 use App\Services\DocumentStore;
 use App\Services\EventStore;
 use App\Services\OrderCancellation;
 use App\Services\OrderConfirmation;
-use App\Services\VkMessageSender;
+use App\Services\PrintModeChoice;
 use App\Services\Webhook\BotCommand;
 use App\Services\Webhook\WebhookHandler;
 use App\Support\BotTexts;
 use App\Support\ScheduleText;
 use Illuminate\Support\Facades\Log;
 use Symfony\Component\HttpFoundation\Response;
-use App\Models\Document;
-use App\Jobs\SendBotReply;
 
 final class VkWebhookHandler implements WebhookHandler
 {
@@ -55,7 +54,7 @@ final class VkWebhookHandler implements WebhookHandler
             'attachments' => $event->message['attachments'] ?? [],
         ]);
 
-        // Кнопка «Начать», «Отправить файл», «Корпус N», «Подтвердить», «Отмена» или /start
+        // Кнопка «Начать», «Отправить файл», «Корпус N», «ЧБ», «Цветной», «Подтвердить», «Отмена» или /start
         $command = BotCommand::detect($event->message, $event->text);
 
         if ($event->peerId !== null && $command !== null) {
@@ -99,17 +98,32 @@ final class VkWebhookHandler implements WebhookHandler
             );
         }
 
+        // Принтер: цена ЧБ и цветного разная, поэтому спрашиваем до выставления счёта
+        if (BotCommand::isMode($command)) {
+            $result = app(PrintModeChoice::class)->choose('vk', $userId, (string) BotCommand::mode($command));
+
+            $keyboard = match ($result['stage']) {
+                PrintModeChoice::STAGE_CONFIRM => VkKeyboard::confirmOrCancel(),
+                PrintModeChoice::STAGE_MODE => VkKeyboard::printMode(),
+                default => VkKeyboard::chosenCampus(),
+            };
+
+            return $this->reply($peerId, $result['text'], $keyboard);
+        }
+
+        // Кнопка корпуса: код пришёл из клавиатуры, остальное — из БД
         if (BotCommand::isCampus($command)) {
-            // Название берём из БД: его меняют в админке
-            $title = Campus::query()->where('code', $command)->value('title')
-                ?? BotCommand::CAMPUSES[$command]
-                ?? 'корпус';
+            $campus = Campus::query()->where('code', $command)->first();
+
+            if ($campus === null) {
+                return $this->reply($peerId, BotTexts::unknownCommand(), VkKeyboard::chosenCampus());
+            }
 
             // Красная кнопка: корпус выключен — не запоминаем и не считаем
-            if (! Campus::isActive($command)) {
+            if (! $campus->is_active) {
                 return $this->reply(
                     $peerId,
-                    BotTexts::campusInactive($title),
+                    BotTexts::campusInactive((string) $campus->title),
                     VkKeyboard::chosenCampus(),
                 );
             }
@@ -119,13 +133,13 @@ final class VkWebhookHandler implements WebhookHandler
             return $this->reply(
                 $peerId,
                 BotTexts::campusChosen(
-                    $title,
+                    (string) $campus->title,
                     ScheduleText::forCampus($command),
                     Document::queuedForCampus($command),
                 ),
                 VkKeyboard::cancelBtn()
             );
-        }   
+        }
 
         [$text, $keyboard] = match ($command) {
             BotCommand::START => [BotTexts::welcome(), VkKeyboard::chosenCampus()],

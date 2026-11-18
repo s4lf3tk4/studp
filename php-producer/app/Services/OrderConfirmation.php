@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\Document;
 use App\Services\Payments\TinkoffGateway;
 use App\Support\BotTexts;
+use App\Support\PrintMode;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
@@ -45,6 +46,7 @@ final class OrderConfirmation
                 'file_path' => $draft['file_path'],
                 'campus' => $draft['campus'] ?? null,
                 'pages' => $draft['pages'],
+                'print_mode' => $draft['print_mode'] ?? null,
                 'status' => Document::STATUS_AWAITING_PAYMENT,
             ]);
         } catch (\Throwable $e) {
@@ -67,6 +69,7 @@ final class OrderConfirmation
             (int) $draft['pages'],
             (int) ($draft['amount_kopecks'] ?? 0),
             $paymentUrl,
+            PrintMode::label(isset($draft['print_mode']) ? (string) $draft['print_mode'] : null),
         );
 
         if ($paymentFailed) {

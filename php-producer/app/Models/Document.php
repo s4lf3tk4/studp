@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Support\PrintMode;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
@@ -26,7 +27,7 @@ final class Document extends Model
     protected $fillable = [
         'platform', 'external_user_id', 'chat_id', 'message_mid',
         'original_name', 'mime', 'size_bytes', 'file_path', 'campus',
-        'pages', 'status', 'error',
+        'pages', 'print_mode', 'status', 'error',
     ];
 
     protected function casts(): array
@@ -59,7 +60,7 @@ final class Document extends Model
         $this->update(['status' => self::STATUS_PRINTED]);
     }
 
-        /** Сколько оплаченных документов ждёт печати в этом корпусе */
+    /** Сколько оплаченных документов ждёт печати в этом корпусе */
     public static function queuedForCampus(string $campusCode): int
     {
         return self::query()
@@ -77,5 +78,11 @@ final class Document extends Model
     public function statusLabel(): string
     {
         return self::STATUS_LABELS[$this->status] ?? (string) $this->status;
+    }
+
+    /** Режим печати для админки: «ЧБ», «Цветной» или «—» у документов до выбора режима */
+    public function modeLabel(): string
+    {
+        return PrintMode::label($this->print_mode) ?? '—';
     }
 }

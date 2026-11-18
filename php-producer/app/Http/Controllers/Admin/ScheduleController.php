@@ -33,7 +33,7 @@ final class ScheduleController
         ]);
     }
 
-    /** Реквизиты корпуса и цена за страницу */
+    /** Реквизиты корпуса и цены за страницу: ЧБ и цветная */
     public function updateCampus(Request $request, Campus $campus): JsonResponse
     {
         $data = $request->validate([
@@ -41,7 +41,10 @@ final class ScheduleController
             'address' => ['nullable', 'string', 'max:255'],
             'room' => ['nullable', 'string', 'max:32'],
             'is_active' => ['required', 'boolean'],
+            // копейки: 230 = 2,30 ₽. 0 — цена не задана, бот её не показывает
             'price_per_page_kopecks' => ['required', 'integer', 'min:0', 'max:1000000'],
+            // 0 — цветной принтер не настроен, бот не предлагает этот режим
+            'color_price_per_page_kopecks' => ['required', 'integer', 'min:0', 'max:1000000'],
         ]);
 
         $campus->update($data);
@@ -113,6 +116,7 @@ final class ScheduleController
             'room' => $campus->room,
             'is_active' => (bool) $campus->is_active,
             'price_per_page_kopecks' => (int) $campus->price_per_page_kopecks,
+            'color_price_per_page_kopecks' => (int) $campus->color_price_per_page_kopecks,
             'days' => $days,
         ];
     }

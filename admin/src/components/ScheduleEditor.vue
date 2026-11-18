@@ -23,6 +23,16 @@ const baseline = ref('');
 
 const current = computed(() => campuses.value.find((campus) => campus.id === currentId.value) ?? null);
 
+/** Копейки → «2,30 ₽»: в полях вводятся копейки, человек читает рубли */
+const rub = (kopecks) => `${((Number(kopecks) || 0) / 100).toFixed(2).replace('.', ',')} ₽`;
+
+const kopeck = (value) => Number(value) || 0;
+
+/** Обе цены нулевые — бот посчитает страницы, но не назовёт сумму */
+const noPrices = computed(
+  () => current.value !== null && kopeck(current.value.price_per_page_kopecks) === 0 && kopeck(current.value.color_price_per_page_kopecks) === 0,
+);
+
 /** Снимок редактируемых полей — по нему видно, есть ли несохранённые правки */
 const snapshot = () =>
   JSON.stringify({
@@ -30,7 +40,8 @@ const snapshot = () =>
     address: current.value?.address ?? '',
     room: current.value?.room ?? '',
     is_active: current.value?.is_active ?? false,
-    price_per_page_kopecks: current.value?.price_per_page_kopecks ?? 0,
+    price_per_page_kopecks: kopeck(current.value?.price_per_page_kopecks),
+    color_price_per_page_kopecks: kopeck(current.value?.color_price_per_page_kopecks),
     days: draft.value,
   });
 
@@ -113,7 +124,8 @@ const saveCampus = () =>
       address: current.value.address,
       room: current.value.room,
       is_active: current.value.is_active,
-      price_per_page_kopecks: current.value.price_per_page_kopecks,
+      price_per_page_kopecks: kopeck(current.value.price_per_page_kopecks),
+      color_price_per_page_kopecks: kopeck(current.value.color_price_per_page_kopecks),
     });
 
     replaceCampus(campus);
@@ -171,6 +183,8 @@ onUnmounted(() => window.removeEventListener('hashchange', applyHash));
       </span>
 
       <span v-if="dirty" class="warn">не сохранено</span>
+      <span v-if="message" class="ok">{{ message }}</span>
+      <span v-if="error" class="err">{{ error }}</span>
     </div>
 
     <button class="ghost" @click="logout">Выйти</button>
@@ -193,15 +207,58 @@ onUnmounted(() => window.removeEventListener('hashchange', applyHash));
   <template v-else-if="tab === 'settings'">
     <div class="card">
       <h2>Реквизиты</h2>
-      <div class="row">
-        <input v-model="current.title" type="text" placeholder="Название" />
-        <input v-model="current.address" type="text" placeholder="Адрес" size="30" />
-        <input v-model="current.room" type="text" placeholder="Кабинет" size="8" />
-        <input v-model.number="current.price_per_page_kopecks" type="number" placeholder="копеек за страницу" />
-        <label class="row gap-sm"><input v-model="current.is_active" type="checkbox" /> включён</label>
-        <button :disabled="busy" @click="saveCampus">Сохранить</button>
+
+      <div class="fields">
+        <label class="field">
+          <span class="field-label">Название корпуса</span>
+          <input v-model="current.title" type="text" placeholder="Корпус 2" />
+          <span class="hint">Так корпус называется в кнопках бота и в сообщениях клиенту.</span>
+        </label>
+
+        <label class="field">
+          <span class="field-label">Адрес</span>
+          <input v-model="current.address" type="text" placeholder="ул. Мира, 5" />
+          <span class="hint">Уходит клиенту в сообщении «документ напечатан».</span>
+        </label>
+
+        <label class="field">
+          <span class="field-label">Кабинет</span>
+          <input v-model="current.room" type="text" placeholder="101" size="8" />
+          <span class="hint">Куда идти за распечаткой.</span>
+        </label>
+
+        <label class="field">
+          <span class="field-label">Цена за страницу, ЧБ (копеек)</span>
+          <input v-model.number="current.price_per_page_kopecks" type="number" min="0" placeholder="230" />
+          <span class="hint">
+            Копейки: 230 = {{ rub(230) }}, то есть {{ rub(current.price_per_page_kopecks) }} за страницу.
+            Ноль — бот цену не называет.
+          </span>
+        </label>
+
+        <label class="field">
+          <span class="field-label">Цена за страницу, цветной (копеек)</span>
+          <input v-model.number="current.color_price_per_page_kopecks" type="number" min="0" placeholder="600" />
+          <span class="hint">
+            Копейки: 600 = {{ rub(600) }}, то есть {{ rub(current.color_price_per_page_kopecks) }} за страницу.
+            Ноль — цветной принтер выключен, бот предлагает только ЧБ.
+          </span>
+        </label>
+
+        <label class="field">
+          <span class="field-label">Корпус принимает заказы</span>
+          <span class="row gap-sm"><input v-model="current.is_active" type="checkbox" /> включён</span>
+          <span class="hint">Снятая галочка — кнопка корпуса краснеет, файлы от него не принимаются.</span>
+        </label>
       </div>
-      <p class="muted">Цена в копейках: 240 = 2,40 ₽ за страницу.</p>
+
+      <p v-if="noPrices" class="warn">
+        Обе цены нулевые: бот посчитает страницы, но не назовёт стоимость и не выставит счёт. Заполни хотя бы ЧБ.
+      </p>
+
+      <div class="row" style="margin-top: 12px">
+        <button :disabled="busy" @click="saveCampus">Сохранить реквизиты</button>
+      </div>
     </div>
 
     <div class="card">
@@ -231,8 +288,6 @@ onUnmounted(() => window.removeEventListener('hashchange', applyHash));
 
       <div class="row" style="margin-top: 12px">
         <button :disabled="busy" @click="saveDays">Сохранить расписание</button>
-        <span v-if="message" class="ok">{{ message }}</span>
-        <span v-if="error" class="err">{{ error }}</span>
       </div>
       <p class="muted">
         Снятая галочка «Работает» делает день выходным, время при этом сохраняется — пригодится, когда типография

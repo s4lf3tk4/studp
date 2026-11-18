@@ -3,22 +3,22 @@
 namespace App\Services\Webhook\Max;
 
 use App\Jobs\ProcessIncomingDocument;
-use App\Jobs\SendMaxReply;
+use App\Jobs\SendBotReply;
 use App\Models\Campus;
+use App\Models\Document;
 use App\Services\CampusChoice;
 use App\Services\DocumentStore;
 use App\Services\EventStore;
 use App\Services\MaxMessageSender;
 use App\Services\OrderCancellation;
 use App\Services\OrderConfirmation;
+use App\Services\PrintModeChoice;
 use App\Services\Webhook\BotCommand;
 use App\Services\Webhook\WebhookHandler;
 use App\Support\BotTexts;
 use App\Support\ScheduleText;
 use Illuminate\Support\Facades\Log;
 use Symfony\Component\HttpFoundation\Response;
-use App\Models\Document;
-use App\Jobs\SendBotReply;
 
 final class MaxWebhookHandler implements WebhookHandler
 {
@@ -54,7 +54,7 @@ final class MaxWebhookHandler implements WebhookHandler
             return $this->handleCommand($event, BotCommand::START);
         }
 
-        // Нажатие кнопки (message_callback) или текст: /start, «Отправить файл», «Корпус 1»
+        // Нажатие кнопки (message_callback) или текст: /start, «Отправить файл», «Корпус 1», «ЧБ»
         $command = $event->command ?? BotCommand::detect($event->raw['message'] ?? [], $event->text);
 
         if ($command !== null) {
@@ -106,6 +106,26 @@ final class MaxWebhookHandler implements WebhookHandler
             );
         }
 
+        // Принтер: цена ЧБ и цветного разная, поэтому спрашиваем до выставления счёта
+        if (BotCommand::isMode($command)) {
+            $userId = $event->userId;
+
+            if ($userId === null) {
+                return response('ok');
+            }
+
+            $result = app(PrintModeChoice::class)->choose('max', $userId, (string) BotCommand::mode($command));
+
+            $keyboard = match ($result['stage']) {
+                PrintModeChoice::STAGE_CONFIRM => MaxKeyboard::confirmOrCancel(),
+                PrintModeChoice::STAGE_MODE => MaxKeyboard::printMode(),
+                default => MaxKeyboard::chosenCampus(),
+            };
+
+            return $this->reply($event, $result['text'], $keyboard);
+        }
+
+        // Кнопка корпуса: код пришёл из клавиатуры, остальное — из БД
         if (BotCommand::isCampus($command)) {
             $userId = $event->userId;
 
@@ -113,16 +133,17 @@ final class MaxWebhookHandler implements WebhookHandler
                 return response('ok');
             }
 
-            // Название берём из БД: его меняют в админке
-            $title = Campus::query()->where('code', $command)->value('title')
-                ?? BotCommand::CAMPUSES[$command]
-                ?? 'корпус';
+            $campus = Campus::query()->where('code', $command)->first();
+
+            if ($campus === null) {
+                return $this->reply($event, BotTexts::unknownCommand(), MaxKeyboard::chosenCampus());
+            }
 
             // Корпус выключен: кнопка помечена «не работает», выбор запрещён
-            if (! Campus::isActive($command)) {
+            if (! $campus->is_active) {
                 return $this->reply(
                     $event,
-                    BotTexts::campusInactive($title),
+                    BotTexts::campusInactive((string) $campus->title),
                     MaxKeyboard::chosenCampus(),
                 );
             }
@@ -132,7 +153,7 @@ final class MaxWebhookHandler implements WebhookHandler
             return $this->reply(
                 $event,
                 BotTexts::campusChosen(
-                    $title,
+                    (string) $campus->title,
                     ScheduleText::forCampus($command),
                     Document::queuedForCampus($command),
                 ),

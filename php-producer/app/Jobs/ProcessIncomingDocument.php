@@ -10,6 +10,7 @@ use App\Services\VkMessageSender;
 use App\Services\Webhook\Max\MaxKeyboard;
 use App\Services\Webhook\Vk\VkKeyboard;
 use App\Support\BotTexts;
+use App\Support\PrintMode;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Support\Facades\Log;
@@ -21,19 +22,18 @@ final class ProcessIncomingDocument implements ShouldQueue
 {
     use Queueable;
 
-
     public int $timeout = 280;
     public int $tries = 3;
     public int $backoff = 10;
 
     public function __construct(
-        public readonly string $platform,      
-        public readonly int $recipientId,     
+        public readonly string $platform,
+        public readonly int $recipientId,
         public readonly string $fileUrl,
         public readonly ?string $fileName = null,
         public readonly ?string $extension = null,
         public readonly ?int $size = null,
-        public readonly ?int $userId = null,    // кто отправил (VK: from_id)
+        public readonly ?int $userId = null,  
         public readonly ?string $campus = null,
     ) {}
 
@@ -120,7 +120,7 @@ final class ProcessIncomingDocument implements ShouldQueue
             return;
         }
 
-        // Цена зависит от корпуса — считаем её ДО формирования текста
+        // Цена зависит от корпуса и от режима печати — считаем её ДО формирования текста
         $campus = $this->campus !== null
             ? Campus::query()->where('code', $this->campus)->first()
             : null;
@@ -129,8 +129,9 @@ final class ProcessIncomingDocument implements ShouldQueue
             Log::warning('Корпус из заявки не найден в БД — считаю без цены', ['campus' => $this->campus]);
         }
 
-        // 0 в БД означает «цена не задана» — тогда показываем только страницы
-        $pricePerPage = ($campus?->price_per_page_kopecks) ?: null;
+        // Режимы с ценой 0 в корпусе не настроены — бот их не предлагает
+        $prices = PrintMode::prices($campus);
+        $fromDocx = $extension === 'docx';
 
         Log::info('Файл обработан', [
             'platform' => $this->platform,
@@ -138,29 +139,70 @@ final class ProcessIncomingDocument implements ShouldQueue
             'campus' => $this->campus,
             'pages' => $pages,
             'extension' => $extension,
-            'price_per_page_kopecks' => $pricePerPage,
+            'modes' => array_keys($prices),
             'file_path' => $path,
         ]);
 
-        // Черновик заказа: из него кнопка «Подтвердить» создаст запись в MySQL
+        // Черновик заказа: из него кнопки режима и «Подтвердить» соберут заказ в MySQL
         if ($this->userId !== null) {
             app(DocumentStore::class)->file($this->platform, $this->userId, $path, $disk->size($path));
-            app(DocumentStore::class)->pages($this->platform, $this->userId, $pages, $pricePerPage);
+            app(DocumentStore::class)->pages($this->platform, $this->userId, $pages);
         }
 
-        $keyboard = $this->platform === 'max' ? MaxKeyboard::confirmOrCancel() : VkKeyboard::confirmOrCancel();
+        // Ни одной цены — показываем только страницы, как было до цветной печати
+        if ($prices === []) {
+            $this->reply(
+                $fromDocx ? BotTexts::pagesFromDocx($pages) : BotTexts::pages($pages),
+                $this->confirmKeyboard(),
+            );
 
-        // Текст зависит от формата: для DOCX честно указываем источник числа страниц
-        $text = $extension === 'docx'
-            ? BotTexts::pagesFromDocx($pages, $pricePerPage)
-            : BotTexts::pages($pages, $pricePerPage);
+            return;
+        }
 
-        $this->reply($text, $keyboard);
+        // Цена задана только у одного режима — спрашивать не о чем, подставляем его
+        if (count($prices) === 1) {
+            $mode = (string) array_key_first($prices);
+            $price = $prices[$mode];
+
+            if ($this->userId !== null) {
+                app(DocumentStore::class)->mode($this->platform, $this->userId, $mode, $price);
+            }
+
+            $this->reply(
+                BotTexts::modeConfirmed(PrintMode::label($mode) ?? $mode, $pages, $price, $fromDocx),
+                $this->confirmKeyboard(),
+            );
+
+            return;
+        }
+
+        // Оба режима доступны — клиент выбирает принтер, цену показываем сразу
+        $this->reply(
+            BotTexts::modeQuestion(
+                $pages,
+                $prices[PrintMode::BW] ?? null,
+                $prices[PrintMode::COLOR] ?? null,
+                $fromDocx,
+            ),
+            $this->modeKeyboard(),
+        );
     }
 
     private function maxBytes(): int
     {
         return (int) config("services.{$this->platform}.max_file_bytes", 30 * 1024 * 1024);
+    }
+
+    /** Кнопки после подсчёта страниц: подтверждение заказа или отмена */
+    private function confirmKeyboard(): array
+    {
+        return $this->platform === 'max' ? MaxKeyboard::confirmOrCancel() : VkKeyboard::confirmOrCancel();
+    }
+
+    /** Кнопки выбора принтера: появляются, когда в корпусе заданы обе цены */
+    private function modeKeyboard(): array
+    {
+        return $this->platform === 'max' ? MaxKeyboard::printMode() : VkKeyboard::printMode();
     }
 
     /** Настоящий тип по первым байтам: платформа может прислать неверное расширение */

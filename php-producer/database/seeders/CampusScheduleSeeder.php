@@ -55,7 +55,7 @@ class CampusScheduleSeeder extends Seeder
                     'address' => $data['address'] ?? null,
                     'room' => $data['room'] ?? null,
                     'is_active' => $data['is_active'] ?? true,
-                    'price_per_page_kopecks' => $data['price_per_page_kopecks'] ?? 200,
+                    
                 ],
             );
 

@@ -15,11 +15,18 @@ final class MaxKeyboard
     private const MARK_INACTIVE = '🔴 ';
 
     /** Кнопки корпусов: выключенный корпус помечаем маркером */
-    public static function chosenCampus(): array
+    /** Кнопки корпусов: состав берётся из БД, кода в списке нет */
+    public static function chosenCampus(): ?array
     {
+        $campuses = self::campuses();
+
+        if ($campuses === []) {
+            return null;
+        }
+
         $buttons = [];
 
-        foreach (self::campuses() as $code => $campus) {
+        foreach ($campuses as $code => $campus) {
             $buttons[] = [
                 'type' => 'callback',
                 'text' => ($campus['active'] ? self::MARK_ACTIVE : self::MARK_INACTIVE).$campus['label'],
@@ -39,45 +46,23 @@ final class MaxKeyboard
         ]]);
     }
 
-    /**
-     * @param  array<int, array<string, mixed>>  $buttons
-     */
-    private static function keyboard(array $buttons): array
+    /** Выбор принтера: у ЧБ и цветного разная цена за страницу */
+    public static function printMode(): array
     {
-        return [
-            'type' => 'inline_keyboard',
-            'payload' => ['buttons' => array_chunk($buttons, self::PER_ROW)],
-        ];
+        return self::keyboard([
+            [
+                'type' => 'callback',
+                'text' => 'ЧБ',
+                'payload' => json_encode(['command' => BotCommand::PRINT_BW], JSON_UNESCAPED_UNICODE),
+            ],
+            [
+                'type' => 'callback',
+                'text' => 'Цветной',
+                'payload' => json_encode(['command' => BotCommand::PRINT_COLOR], JSON_UNESCAPED_UNICODE),
+            ],
+        ]);
     }
 
-    /** @return array<string, array{label: string, active: bool}> */
-    private static function campuses(): array
-    {
-        try {
-            $rows = Campus::query()->orderBy('id')->get();
-
-            if ($rows->isNotEmpty()) {
-                $campuses = [];
-
-                foreach ($rows as $campus) {
-                    $campuses[(string) $campus->code] = [
-                        'label' => (string) $campus->title,
-                        'active' => (bool) $campus->is_active,
-                    ];
-                }
-
-                return $campuses;
-            }
-        } catch (\Throwable $e) {
-            Log::warning('Не прочитал корпуса для клавиатуры: '.$e->getMessage());
-        }
-
-        // БД пуста или недоступна — берём константы, чтобы бот не остался без кнопок
-        return array_map(
-            fn (string $label): array => ['label' => $label, 'active' => true],
-            BotCommand::CAMPUSES,
-        );
-    }
     /** Кнопки решения по заказу: подтвердить оплату или отменить файл */
     public static function confirmOrCancel(): array
     {
@@ -93,5 +78,37 @@ final class MaxKeyboard
                 'payload' => json_encode(['command' => BotCommand::CANCEL], JSON_UNESCAPED_UNICODE),
             ],
         ]);
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $buttons
+     */
+    private static function keyboard(array $buttons): array
+    {
+        return [
+            'type' => 'inline_keyboard',
+            'payload' => ['buttons' => array_chunk($buttons, self::PER_ROW)],
+        ];
+    }
+
+    /** @return array<string, array{label: string, active: bool}> */
+    private static function campuses(): array
+    {
+        try {
+            $campuses = [];
+
+            foreach (Campus::query()->orderBy('id')->get() as $campus) {
+                $campuses[(string) $campus->code] = [
+                    'label' => (string) $campus->title,
+                    'active' => (bool) $campus->is_active,
+                ];
+            }
+
+            return $campuses;
+        } catch (\Throwable $e) {
+            Log::error('Не прочитал корпуса для клавиатуры: '.$e->getMessage());
+
+            return [];
+        }
     }
 }
