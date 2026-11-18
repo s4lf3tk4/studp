@@ -6,14 +6,13 @@ use App\Models\Campus;
 use App\Models\Document;
 use App\Services\BotNotifier;
 use App\Support\BotTexts;
-use App\Support\PrintMode;
 use App\Support\Money;
+use App\Support\PrintMode;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Symfony\Component\HttpFoundation\StreamedResponse;
-
 
 /**
  * Печать и выдача: оплаченные ждут печати, напечатанные ждут клиента,
@@ -50,6 +49,7 @@ final class PrintController
             'status' => $document->status,
             'status_label' => $document->statusLabel(),
             'print_mode_label' => $document->modeLabel(),
+            'formats' => $document->formatLabels(),
             'notified' => $this->notifyPrinted($document),
         ]);
     }
@@ -127,6 +127,7 @@ final class PrintController
                 'campus' => $titles[$document->campus] ?? ($document->campus ?? '—'),
                 'campus_code' => $document->campus,
                 'pages' => (int) $document->pages,
+                'formats' => $document->formatLabels(),
                 'print_mode' => $document->print_mode,
                 'print_mode_label' => $document->modeLabel(),
                 'amount_kopecks' => $amount,
@@ -198,6 +199,7 @@ final class PrintController
             $campus?->address,
             $campus?->room,
             PrintMode::label($document->print_mode),
+            $document->formatLabels(),
         );
 
         try {

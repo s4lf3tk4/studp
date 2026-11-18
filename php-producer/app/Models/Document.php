@@ -27,12 +27,12 @@ final class Document extends Model
     protected $fillable = [
         'platform', 'external_user_id', 'chat_id', 'message_mid',
         'original_name', 'mime', 'size_bytes', 'file_path', 'campus',
-        'pages', 'print_mode', 'status', 'error',
+        'pages', 'print_mode', 'pages_by_format', 'status', 'error',
     ];
 
     protected function casts(): array
     {
-        return ['size_bytes' => 'int', 'pages' => 'int'];
+        return ['size_bytes' => 'int', 'pages' => 'int', 'pages_by_format' => 'array'];
     }
 
     /** @return HasMany<Payment, $this> */
@@ -85,4 +85,12 @@ final class Document extends Model
     {
         return PrintMode::label($this->print_mode) ?? '—';
     }
+    /** Форматы страниц для админки и сообщений: «A4 ×10, A3 ×2» */
+    public function formatLabels(): string
+    {
+        return \App\Support\BotTexts::formatsLine(
+            is_array($this->pages_by_format) ? $this->pages_by_format : [],
+        );
+    }
+
 }

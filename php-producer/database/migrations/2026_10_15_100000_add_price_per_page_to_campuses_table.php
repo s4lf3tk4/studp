@@ -6,20 +6,33 @@ use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
+    /** Формат => часть имени колонки */
+    private const FORMATS = ['a4', 'a3', 'a2', 'a1', 'a0'];
+
+    /** Режим печати => префикс колонки */
+    private const MODES = ['bw', 'color'];
+
     public function up(): void
     {
         Schema::table('campuses', function (Blueprint $table) {
-            // Цена за страницу в копейках. 0 — админ ещё не задал цену, бот её не называет
-            $table->unsignedInteger('price_per_page_kopecks')->default(0)->after('room');
-            // Цена цветной печати. 0 — цветной принтер не настроен, бот этот режим не предлагает
-            $table->unsignedInteger('color_price_per_page_kopecks')->default(0)->after('price_per_page_kopecks');
+            // Цены в копейках: 230 = 2,30 ₽. Админ выставляет их в панели.
+            // 0 — этот формат в корпусе не печатают, бот его не предложит.
+            foreach (self::MODES as $mode) {
+                foreach (self::FORMATS as $format) {
+                    $table->unsignedInteger("price_{$mode}_{$format}_kopecks")->default(0);
+                }
+            }
         });
     }
 
     public function down(): void
     {
         Schema::table('campuses', function (Blueprint $table) {
-            $table->dropColumn(['price_per_page_kopecks', 'color_price_per_page_kopecks']);
+            foreach (self::MODES as $mode) {
+                foreach (self::FORMATS as $format) {
+                    $table->dropColumn("price_{$mode}_{$format}_kopecks");
+                }
+            }
         });
     }
 };

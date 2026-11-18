@@ -4,6 +4,9 @@ namespace App\Http\Controllers\Admin;
 
 use App\Models\Campus;
 use App\Models\CampusDay;
+use App\Support\PaperFormat;
+use App\Support\PriceList;
+use App\Support\PrintMode;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -33,21 +36,24 @@ final class ScheduleController
         ]);
     }
 
-    /** Реквизиты корпуса и цены за страницу: ЧБ и цветная */
+    /** Реквизиты корпуса и цены за страницу: режим печати × формат бумаги */
     public function updateCampus(Request $request, Campus $campus): JsonResponse
     {
-        $data = $request->validate([
+        $rules = [
             'title' => ['required', 'string', 'max:255'],
             'address' => ['nullable', 'string', 'max:255'],
             'room' => ['nullable', 'string', 'max:32'],
             'is_active' => ['required', 'boolean'],
-            // копейки: 230 = 2,30 ₽. 0 — цена не задана, бот её не показывает
-            'price_per_page_kopecks' => ['required', 'integer', 'min:0', 'max:1000000'],
-            // 0 — цветной принтер не настроен, бот не предлагает этот режим
-            'color_price_per_page_kopecks' => ['required', 'integer', 'min:0', 'max:1000000'],
-        ]);
+        ];
 
-        $campus->update($data);
+        // Цена за страницу для каждой пары «режим × формат»: 0 — формат не печатаем
+        foreach (array_keys(PrintMode::LABELS) as $mode) {
+            foreach (PaperFormat::ORDER as $format) {
+                $rules[PriceList::column($mode, $format)] = ['required', 'integer', 'min:0', 'max:1000000'];
+            }
+        }
+
+        $campus->update($request->validate($rules));
 
         return response()->json(['campus' => $this->campusPayload($campus->fresh('days'))]);
     }
@@ -108,6 +114,15 @@ final class ScheduleController
             ];
         }
 
+        $prices = [];
+
+        foreach (array_keys(PrintMode::LABELS) as $mode) {
+            foreach (PaperFormat::ORDER as $format) {
+                $column = PriceList::column($mode, $format);
+                $prices[$column] = (int) $campus->{$column};
+            }
+        }
+
         return [
             'id' => $campus->id,
             'code' => $campus->code,
@@ -115,8 +130,7 @@ final class ScheduleController
             'address' => $campus->address,
             'room' => $campus->room,
             'is_active' => (bool) $campus->is_active,
-            'price_per_page_kopecks' => (int) $campus->price_per_page_kopecks,
-            'color_price_per_page_kopecks' => (int) $campus->color_price_per_page_kopecks,
+            ...$prices,
             'days' => $days,
         ];
     }

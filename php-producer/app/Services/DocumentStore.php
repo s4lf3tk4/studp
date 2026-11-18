@@ -34,7 +34,9 @@ final class DocumentStore
             'file_path' => null,
             'size' => null,
             'pages' => null,
-            'print_mode' => null,             // bw | color — выберет клиент после подсчёта
+            'pages_by_format' => null,
+            'prices' => null,
+            'print_mode' => null,
             'status' => 'new',
             'created_at' => now()->toIso8601String(),
         ], self::TTL_UNPAID);
@@ -52,36 +54,6 @@ final class DocumentStore
     public function file(string $platform, int $userId, string $path, ?int $size = null): void
     {
         $this->put($platform, $userId, ['file_path' => $path, 'size' => $size]);
-    }
-
-    /** Число страниц; прошлый выбор режима сбрасывается — он относился к другому файлу */
-    public function pages(
-        string $platform,
-        int $userId,
-        int $pages,
-        ?int $pricePerPageKopecks = null,
-    ): void {
-        $this->put($platform, $userId, [
-            'pages' => $pages,
-            'print_mode' => null,
-            'price_per_page_kopecks' => $pricePerPageKopecks,
-            'amount_kopecks' => $pricePerPageKopecks !== null ? $pages * $pricePerPageKopecks : null,
-            'status' => 'counted',
-            'counted_at' => now()->toIso8601String(),
-        ]);
-    }
-
-    /** Режим печати выбран: цена за страницу и сумма пересчитываются под него */
-    public function mode(string $platform, int $userId, string $mode, int $pricePerPageKopecks): void
-    {
-        $entry = $this->get($platform, $userId);
-        $pages = isset($entry['pages']) ? (int) $entry['pages'] : null;
-
-        $this->put($platform, $userId, [
-            'print_mode' => $mode,
-            'price_per_page_kopecks' => $pricePerPageKopecks,
-            'amount_kopecks' => $pages !== null ? $pages * $pricePerPageKopecks : null,
-        ]);
     }
 
     /** Заказ создан в MySQL — запоминаем id и ссылку, чтобы повтор не создал второй */
@@ -110,6 +82,35 @@ final class DocumentStore
         }
 
         Cache::put($this->key($platform, $userId), array_merge($entry, $values), $ttl ?? self::TTL_UNPAID);
+    }
+
+        /** Сколько страниц какого формата: цена зависит от формата бумаги */
+    public function pages(string $platform, int $userId, array $formats): void
+    {
+        $this->put($platform, $userId, [
+            'pages' => array_sum($formats),
+            'pages_by_format' => $formats,     // формат => страниц
+            'print_mode' => null,
+            'prices' => null,
+            'amount_kopecks' => null,
+            'status' => 'counted',
+            'counted_at' => now()->toIso8601String(),
+        ]);
+    }
+
+    /** Режим выбран: цены за страницу по форматам и итог */
+    public function mode(
+        string $platform,
+        int $userId,
+        string $mode,
+        array $prices,
+        int $amountKopecks,
+    ): void {
+        $this->put($platform, $userId, [
+            'print_mode' => $mode,
+            'prices' => $prices,               // формат => копеек за страницу
+            'amount_kopecks' => $amountKopecks,
+        ]);
     }
 
     private function key(string $platform, int $userId): string

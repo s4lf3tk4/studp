@@ -17,6 +17,8 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use RuntimeException;
+use App\Support\PaperFormat;
+use App\Support\PriceList;
 
 final class ProcessIncomingDocument implements ShouldQueue
 {
@@ -85,9 +87,15 @@ final class ProcessIncomingDocument implements ShouldQueue
                 $extension = $realExtension;
             }
 
+            // Файл на месте и тип известен — только теперь считаем страницы и форматы
             $pages = $extension === 'docx'
                 ? $counter->countFromDocx($absolute)
                 : $counter->countFromFile($absolute);
+
+            // Форматы страниц: у PDF — постранично из pdfinfo, у DOCX — из w:pgSz по секциям
+            $formats = $extension === 'docx'
+                ? $counter->formatsFromDocx($absolute, $pages)
+                : $counter->formatsFromFile($absolute, $pages);
         } catch (RuntimeException $e) {
             $disk->delete($path);
 
@@ -120,7 +128,7 @@ final class ProcessIncomingDocument implements ShouldQueue
             return;
         }
 
-        // Цена зависит от корпуса и от режима печати — считаем её ДО формирования текста
+        // Цена зависит от корпуса, режима печати и формата каждой страницы
         $campus = $this->campus !== null
             ? Campus::query()->where('code', $this->campus)->first()
             : null;
@@ -129,8 +137,8 @@ final class ProcessIncomingDocument implements ShouldQueue
             Log::warning('Корпус из заявки не найден в БД — считаю без цены', ['campus' => $this->campus]);
         }
 
-        // Режимы с ценой 0 в корпусе не настроены — бот их не предлагает
-        $prices = PrintMode::prices($campus);
+        $prices = PriceList::forCampus($campus);
+        $totals = $prices->totals($formats);
         $fromDocx = $extension === 'docx';
 
         Log::info('Файл обработан', [
@@ -138,54 +146,60 @@ final class ProcessIncomingDocument implements ShouldQueue
             'user_id' => $this->userId,
             'campus' => $this->campus,
             'pages' => $pages,
+            'formats' => $formats,
             'extension' => $extension,
-            'modes' => array_keys($prices),
+            'modes' => array_keys($totals),
             'file_path' => $path,
         ]);
 
         // Черновик заказа: из него кнопки режима и «Подтвердить» соберут заказ в MySQL
         if ($this->userId !== null) {
             app(DocumentStore::class)->file($this->platform, $this->userId, $path, $disk->size($path));
-            app(DocumentStore::class)->pages($this->platform, $this->userId, $pages);
+            app(DocumentStore::class)->pages($this->platform, $this->userId, $formats);
         }
 
-        // Ни одной цены — показываем только страницы, как было до цветной печати
-        if ($prices === []) {
-            $this->reply(
-                $fromDocx ? BotTexts::pagesFromDocx($pages) : BotTexts::pages($pages),
-                $this->confirmKeyboard(),
-            );
+        // Формат страницы вне A4…A0: печатать такое не будем
+        $unsupported = false;
 
-            return;
-        }
+        foreach (array_keys($formats) as $format) {
+            if (! PaperFormat::isSupported((string) $format)) {
+                $unsupported = true;
 
-        // Цена задана только у одного режима — спрашивать не о чем, подставляем его
-        if (count($prices) === 1) {
-            $mode = (string) array_key_first($prices);
-            $price = $prices[$mode];
-
-            if ($this->userId !== null) {
-                app(DocumentStore::class)->mode($this->platform, $this->userId, $mode, $price);
+                break;
             }
+        }
 
-            $this->reply(
-                BotTexts::modeConfirmed(PrintMode::label($mode) ?? $mode, $pages, $price, $fromDocx),
-                $this->confirmKeyboard(),
-            );
+        if ($unsupported) {
+            $this->reply(BotTexts::formatNotSupported());
 
             return;
         }
 
-        // Оба режима доступны — клиент выбирает принтер, цену показываем сразу
-        $this->reply(
-            BotTexts::modeQuestion(
-                $pages,
-                $prices[PrintMode::BW] ?? null,
-                $prices[PrintMode::COLOR] ?? null,
-                $fromDocx,
-            ),
-            $this->modeKeyboard(),
-        );
+        // В корпусе нет ни одной цены — показываем только страницы и форматы
+        if ($prices->isEmpty()) {
+            $this->reply(BotTexts::pagesOnly($formats, $fromDocx), $this->confirmKeyboard());
+
+            return;
+        }
+
+        // Формат поддерживается, но цены на него в корпусе нет
+        $missing = $prices->unpriced($formats);
+
+        if ($missing !== []) {
+            $this->reply(BotTexts::priceMissing($missing), $this->chosenCampusKeyboard());
+
+            return;
+        }
+
+        // Цена есть только у одного режима — спрашивать не о чем
+        if (count($totals) === 1) {
+            $this->applyMode((string) array_key_first($totals), $formats, $prices, $fromDocx);
+
+            return;
+        }
+
+        // Оба режима доступны — клиент выбирает принтер, итог показываем сразу
+        $this->reply(BotTexts::modeQuestion($formats, $totals, $fromDocx), $this->modeKeyboard());
     }
 
     private function maxBytes(): int
@@ -197,6 +211,36 @@ final class ProcessIncomingDocument implements ShouldQueue
     private function confirmKeyboard(): array
     {
         return $this->platform === 'max' ? MaxKeyboard::confirmOrCancel() : VkKeyboard::confirmOrCancel();
+    }
+
+        /**
+     * Единственный доступный режим: сразу считаем и показываем итог.
+     *
+     * @param  array<string, int>  $formats
+     */
+    private function applyMode(string $mode, array $formats, PriceList $prices, bool $fromDocx): void
+    {
+        $total = (int) $prices->total($mode, $formats);
+        $perFormat = [];
+
+        foreach (array_keys($formats) as $format) {
+            $perFormat[(string) $format] = (int) $prices->price($mode, (string) $format);
+        }
+
+        if ($this->userId !== null) {
+            app(DocumentStore::class)->mode($this->platform, $this->userId, $mode, $perFormat, $total);
+        }
+
+        $this->reply(
+            BotTexts::modeConfirmed(PrintMode::label($mode) ?? $mode, $formats, $perFormat, $total, $fromDocx),
+            $this->confirmKeyboard(),
+        );
+    }
+
+    /** Кнопки корпусов: нужны, когда этот корпус не может напечатать формат */
+    private function chosenCampusKeyboard(): ?array
+    {
+        return $this->platform === 'max' ? MaxKeyboard::chosenCampus() : VkKeyboard::chosenCampus();
     }
 
     /** Кнопки выбора принтера: появляются, когда в корпусе заданы обе цены */

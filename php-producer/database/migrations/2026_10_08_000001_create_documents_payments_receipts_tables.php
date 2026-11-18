@@ -29,8 +29,8 @@ return new class extends Migration
             $table->uuid('uuid')->unique();
             $table->foreignId('document_id')->constrained()->cascadeOnDelete();
             $table->unsignedInteger('pages');
-            $table->unsignedInteger('unit_price');
             $table->unsignedInteger('amount');
+            $table->unsignedInteger('unit_price')->nullable();
             $table->string('currency', 3)->default('RUB');
             $table->string('status', 16)->default('pending');
             $table->string('provider', 32)->default('stub');

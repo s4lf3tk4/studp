@@ -4,11 +4,12 @@ namespace App\Services;
 
 use App\Models\Campus;
 use App\Support\BotTexts;
+use App\Support\PriceList;
 use App\Support\PrintMode;
 
 /**
  * Выбор принтера после подсчёта страниц: ЧБ или цветной.
- * Цена берётся из корпуса и сразу попадает в черновик заказа.
+ * Цена зависит от формата каждой страницы и берётся из прайса корпуса.
  */
 final class PrintModeChoice
 {
@@ -24,8 +25,11 @@ final class PrintModeChoice
     public function choose(string $platform, int $userId, string $mode): array
     {
         $draft = $this->store->get($platform, $userId);
+        $formats = isset($draft['pages_by_format']) && is_array($draft['pages_by_format'])
+            ? $draft['pages_by_format']
+            : [];
 
-        if ($draft === null || ! isset($draft['pages'])) {
+        if ($draft === null || $formats === []) {
             return ['text' => BotTexts::orderNotFound(), 'stage' => self::STAGE_RESTART];
         }
 
@@ -43,25 +47,33 @@ final class PrintModeChoice
             ? Campus::query()->where('code', (string) $draft['campus'])->first()
             : null;
 
-        $price = PrintMode::priceFor($campus, $mode);
+        $priceList = PriceList::forCampus($campus);
+        $total = $priceList->total($mode, $formats);
 
-        if ($price === null) {
-            // В корпусе вообще нет цен — предлагать нечего, сразу к подтверждению
-            $stage = PrintMode::prices($campus) === [] ? self::STAGE_CONFIRM : self::STAGE_MODE;
-
+        if ($total === null) {
             return [
-                'text' => BotTexts::modeUnavailable(PrintMode::label($mode) ?? $mode),
-                'stage' => $stage,
+                'text' => BotTexts::modeUnavailable(
+                    PrintMode::label($mode) ?? $mode,
+                    $priceList->missing($mode, $formats),
+                ),
+                'stage' => self::STAGE_MODE,
             ];
         }
 
-        $this->store->mode($platform, $userId, $mode, $price);
+        $prices = [];
+
+        foreach (array_keys($formats) as $format) {
+            $prices[(string) $format] = (int) $priceList->price($mode, (string) $format);
+        }
+
+        $this->store->mode($platform, $userId, $mode, $prices, $total);
 
         return [
             'text' => BotTexts::modeConfirmed(
                 PrintMode::label($mode) ?? $mode,
-                (int) $draft['pages'],
-                $price,
+                $formats,
+                $prices,
+                $total,
                 str_ends_with((string) ($draft['file_path'] ?? ''), '.docx'),
             ),
             'stage' => self::STAGE_CONFIRM,

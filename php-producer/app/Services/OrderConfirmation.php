@@ -47,6 +47,7 @@ final class OrderConfirmation
                 'campus' => $draft['campus'] ?? null,
                 'pages' => $draft['pages'],
                 'print_mode' => $draft['print_mode'] ?? null,
+                'pages_by_format' => $draft['pages_by_format'] ?? null,
                 'status' => Document::STATUS_AWAITING_PAYMENT,
             ]);
         } catch (\Throwable $e) {
@@ -70,6 +71,9 @@ final class OrderConfirmation
             (int) ($draft['amount_kopecks'] ?? 0),
             $paymentUrl,
             PrintMode::label(isset($draft['print_mode']) ? (string) $draft['print_mode'] : null),
+            BotTexts::formatsLine(
+                isset($draft['pages_by_format']) && is_array($draft['pages_by_format']) ? $draft['pages_by_format'] : [],
+            ),
         );
 
         if ($paymentFailed) {
@@ -123,7 +127,7 @@ final class OrderConfirmation
      */
     private function link(Document $document, array $draft): array
     {
-        if (! isset($draft['amount_kopecks'], $draft['price_per_page_kopecks'])) {
+        if (! isset($draft['amount_kopecks']) || (int) $draft['amount_kopecks'] <= 0) {
             return [null, false];   // цена у корпуса не задана — счёт не нужен
         }
 
@@ -150,7 +154,6 @@ final class OrderConfirmation
             $payment = $document->payments()->create([
                 'uuid' => (string) Str::uuid(),
                 'pages' => $draft['pages'],
-                'unit_price' => $draft['price_per_page_kopecks'],
                 'amount' => $draft['amount_kopecks'],
                 'currency' => 'RUB',
                 'status' => 'pending',

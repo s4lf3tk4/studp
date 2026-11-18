@@ -35,18 +35,6 @@ final class BotTexts
             .'На телефоне: Word → «Поделиться» → «Экспорт в PDF».';
     }
 
-    /** Ответ для DOCX: честно говорим, откуда число страниц */
-    public static function pagesFromDocx(int $count, ?int $pricePerPageKopecks = null): string
-    {
-        $text = "В документе {$count} стр. (по данным файла Word).";
-
-        if ($pricePerPageKopecks !== null) {
-            $text .= "\nСтоимость: ".Money::rub($count * $pricePerPageKopecks)
-                .' ('.Money::rub($pricePerPageKopecks).' за страницу)';
-        }
-
-        return $text."\n\n".self::docxNote();
-    }
 
     /** @param int|null $queued сколько оплаченных документов уже ждёт печати в этом корпусе */
     public static function campusChosen(
@@ -67,21 +55,17 @@ final class BotTexts
         return $text."\nОтправьте PDF или DOCX — потом спрошу, печатать ЧБ или цветным.\n";
     }
 
-    /** Вопрос о принтере: показываем цену за страницу у ЧБ и у цветного */
+        /** Вопрос о принтере: форматы страниц и итог в каждом доступном режиме */
     public static function modeQuestion(
-        int $count,
-        ?int $blackPriceKopecks,
-        ?int $colorPriceKopecks,
+        array $formats,
+        array $totals,
         bool $fromDocx = false,
     ): string {
-        $text = "В файле {$count} стр.\n\n";
+        $text = self::formatLines($formats)."\n\n";
 
-        if ($blackPriceKopecks !== null) {
-            $text .= 'ЧБ: '.Money::rub($blackPriceKopecks)." за страницу\n";
-        }
-
-        if ($colorPriceKopecks !== null) {
-            $text .= 'Цветной: '.Money::rub($colorPriceKopecks)." за страницу\n";
+        foreach ($totals as $mode => $kopecks) {
+            $label = PrintMode::label((string) $mode) ?? (string) $mode;
+            $text .= "{$label} — ".Money::rub((int) $kopecks)."\n";
         }
 
         if ($fromDocx) {
@@ -91,17 +75,23 @@ final class BotTexts
         return $text."\nВыберите, на каком принтере печатать:";
     }
 
-    /** Принтер выбран: страницы, цена за страницу и итог */
+    /** Режим выбран: страницы по форматам, цена формата и итог */
     public static function modeConfirmed(
         string $modeLabel,
-        int $count,
-        int $pricePerPageKopecks,
+        array $formats,
+        array $prices,
+        int $totalKopecks,
         bool $fromDocx = false,
     ): string {
-        $text = "Печать: {$modeLabel}\n"
-            ."В файле {$count} стр.\n"
-            .'Цена: '.Money::rub($pricePerPageKopecks)." за страницу\n"
-            .'Итого: '.Money::rub($count * $pricePerPageKopecks);
+        $text = "Печать: {$modeLabel}";
+
+        foreach ($formats as $format => $pages) {
+            $price = (int) ($prices[$format] ?? 0);
+            $text .= "\n{$format} — {$pages} стр. × ".Money::rub($price)
+                .' = '.Money::rub($price * (int) $pages);
+        }
+
+        $text .= "\nИтого: ".Money::rub($totalKopecks);
 
         if ($fromDocx) {
             $text .= "\n\n".self::docxNote();
@@ -110,10 +100,57 @@ final class BotTexts
         return $text."\n\nНажмите «Подтвердить», чтобы получить ссылку на оплату.";
     }
 
-    /** Режим в корпусе не настроен: цена 0 в админке */
-    public static function modeUnavailable(string $modeLabel): string
+    /** Только страницы и форматы: цены в корпусе не заданы */
+    public static function pagesOnly(array $formats, bool $fromDocx = false): string
     {
-        return "Режим «{$modeLabel}» в этом корпусе сейчас недоступен — выберите другой.";
+        $text = self::formatLines($formats);
+
+        if ($fromDocx) {
+            $text .= "\n\n".self::docxNote();
+        }
+
+        return $text;
+    }
+
+    /** Строка форматов для админки и сообщений: «A4 ×10, A3 ×2» */
+    public static function formatsLine(array $formats): string
+    {
+        if ($formats === []) {
+            return '';
+        }
+
+        $parts = [];
+
+        foreach ($formats as $format => $pages) {
+            $parts[] = $format.' ×'.$pages;
+        }
+
+        return implode(', ', $parts);
+    }
+
+    /** «В файле 12 стр.:» + строка на каждый формат */
+    private static function formatLines(array $formats): string
+    {
+        $total = array_sum($formats);
+        $lines = ["В файле {$total} стр.:"];
+
+        foreach ($formats as $format => $pages) {
+            $lines[] = "{$format} — {$pages} стр.";
+        }
+
+        return implode("\n", $lines);
+    }
+
+    /** Режим в корпусе не настроен: цены 0 в админке */
+    public static function modeUnavailable(string $modeLabel, array $missing = []): string
+    {
+        $text = "Режим «{$modeLabel}» в этом корпусе сейчас недоступен";
+
+        if ($missing !== []) {
+            $text .= ' для формата '.implode(', ', $missing);
+        }
+
+        return $text.' — выберите другой.';
     }
 
     /** Загруженность корпуса: сколько файлов стоит в очереди на печать */
@@ -169,18 +206,7 @@ final class BotTexts
             .'Напишите в типографию, если нужно оформить возврат.';
     }
 
-    /** @param int|null $pricePerPageKopecks цена за страницу корпуса: null — показываем только страницы */
-    public static function pages(int $count, ?int $pricePerPageKopecks = null): string
-    {
-        $text = "В файле {$count} стр.";
 
-        if ($pricePerPageKopecks === null) {
-            return $text;
-        }
-
-        return $text.' Стоимость: '.Money::rub($count * $pricePerPageKopecks)
-            .' ('.Money::rub($pricePerPageKopecks).' за страницу).';
-    }
 
     public static function counting(): string
     {
@@ -208,17 +234,22 @@ final class BotTexts
         return 'Формирую ссылку на оплату…';
     }
 
-    public static function orderConfirmed(
+        public static function orderConfirmed(
         int $id,
         string $fileName,
         int $pages,
         int $amountKopecks,
         ?string $paymentUrl = null,
         ?string $modeLabel = null,
+        ?string $formats = null,
     ): string {
         $text = "Заказ №{$id}\n"
             ."Файл: {$fileName}\n"
             ."Страниц: {$pages}\n";
+
+        if ($formats !== null && $formats !== '') {
+            $text .= "Форматы: {$formats}\n";
+        }
 
         if ($modeLabel !== null) {
             $text .= "Печать: {$modeLabel}\n";
@@ -229,12 +260,6 @@ final class BotTexts
         return $paymentUrl !== null ? $text."\n\nОплатить: {$paymentUrl}" : $text;
     }
 
-    public static function orderPaid(int $id): string
-    {
-        return "Заказ №{$id} оплачен, передаю в печать.";
-    }
-
-    /** Приходит, когда типография отметила документ напечатанным */
     public static function orderPrinted(
         int $id,
         string $fileName,
@@ -243,10 +268,15 @@ final class BotTexts
         ?string $address = null,
         ?string $room = null,
         ?string $modeLabel = null,
+        ?string $formats = null,
     ): string {
         $text = "Заказ №{$id} готов и напечатан.\n\n"
             ."Файл: {$fileName}\n"
             ."Страниц: {$pages}\n";
+
+        if ($formats !== null && $formats !== '') {
+            $text .= "Форматы: {$formats}\n";
+        }
 
         if ($modeLabel !== null) {
             $text .= "Печать: {$modeLabel}\n";
@@ -264,6 +294,27 @@ final class BotTexts
 
         return $text."\n\nЗаберите документ в часы работы типографии.";
     }
+
+    /** Формат страницы не поддерживается: печатаем только A4…A0 */
+    public static function formatNotSupported(): string
+    {
+        return "Не могу напечатать: формат страницы не поддерживается.\n"
+            .'Печатаю только '.PaperFormat::supportedLine()." — пришлите файл в одном из этих форматов.\n"
+            .'Для A5/A6 и нестандартных размеров: Word → «Файл» → «Сохранить как» → PDF, размер страницы A4.';
+    }
+
+    /** Формат поддерживается, но в корпусе на него нет цены */
+    public static function priceMissing(array $formats): string
+    {
+        return 'В этом корпусе нет цены на формат '.implode(', ', $formats).".\n"
+            .'Выберите другой корпус.';
+    }
+
+    public static function orderPaid(int $id): string
+    {
+        return "Заказ №{$id} оплачен, передаю в печать.";
+    }
+
 
     public static function fileCanceled(): string
     {

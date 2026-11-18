@@ -11,6 +11,14 @@ const TABS = [
   { key: 'print', label: 'Печать' },
 ];
 
+/** Режимы печати и форматы бумаги: матрица цен 2 × 5 */
+const MODES = [
+  { key: 'bw', label: 'ЧБ' },
+  { key: 'color', label: 'Цветной' },
+];
+
+const FORMATS = ['A4', 'A3', 'A2', 'A1', 'A0'];
+
 const campuses = ref([]);
 const weekdays = ref({});
 const currentId = ref(null);
@@ -28,9 +36,20 @@ const rub = (kopecks) => `${((Number(kopecks) || 0) / 100).toFixed(2).replace('.
 
 const kopeck = (value) => Number(value) || 0;
 
-/** Обе цены нулевые — бот посчитает страницы, но не назовёт сумму */
+/** Колонка в campuses называется price_{режим}_{формат}_kopecks */
+const priceKey = (mode, format) => `price_${mode}_${format.toLowerCase()}_kopecks`;
+
+/** Все 10 цен одним объектом: и для снимка «сохранено», и для запроса */
+const priceFields = (campus) =>
+  Object.fromEntries(
+    MODES.flatMap((mode) =>
+      FORMATS.map((format) => [priceKey(mode.key, format), kopeck(campus?.[priceKey(mode.key, format)])]),
+    ),
+  );
+
+/** Все цены нулевые — бот посчитает страницы, но не назовёт сумму */
 const noPrices = computed(
-  () => current.value !== null && kopeck(current.value.price_per_page_kopecks) === 0 && kopeck(current.value.color_price_per_page_kopecks) === 0,
+  () => current.value !== null && Object.values(priceFields(current.value)).every((price) => price === 0),
 );
 
 /** Снимок редактируемых полей — по нему видно, есть ли несохранённые правки */
@@ -40,8 +59,7 @@ const snapshot = () =>
     address: current.value?.address ?? '',
     room: current.value?.room ?? '',
     is_active: current.value?.is_active ?? false,
-    price_per_page_kopecks: kopeck(current.value?.price_per_page_kopecks),
-    color_price_per_page_kopecks: kopeck(current.value?.color_price_per_page_kopecks),
+    ...priceFields(current.value),
     days: draft.value,
   });
 
@@ -124,8 +142,7 @@ const saveCampus = () =>
       address: current.value.address,
       room: current.value.room,
       is_active: current.value.is_active,
-      price_per_page_kopecks: kopeck(current.value.price_per_page_kopecks),
-      color_price_per_page_kopecks: kopeck(current.value.color_price_per_page_kopecks),
+      ...priceFields(current.value),
     });
 
     replaceCampus(campus);
@@ -227,23 +244,34 @@ onUnmounted(() => window.removeEventListener('hashchange', applyHash));
           <span class="hint">Куда идти за распечаткой.</span>
         </label>
 
-        <label class="field">
-          <span class="field-label">Цена за страницу, ЧБ (копеек)</span>
-          <input v-model.number="current.price_per_page_kopecks" type="number" min="0" placeholder="230" />
+        <div class="field field-wide">
+          <span class="field-label">Цены за страницу, копеек</span>
+          <table class="prices">
+            <thead>
+              <tr>
+                <th>Режим</th>
+                <th v-for="format in FORMATS" :key="format">{{ format }}</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="mode in MODES" :key="mode.key">
+                <td>{{ mode.label }}</td>
+                <td v-for="format in FORMATS" :key="format">
+                  <input
+                    v-model.number="current[priceKey(mode.key, format)]"
+                    type="number"
+                    min="0"
+                    :placeholder="mode.key === 'bw' ? '230' : '600'"
+                  />
+                </td>
+              </tr>
+            </tbody>
+          </table>
           <span class="hint">
-            Копейки: 230 = {{ rub(230) }}, то есть {{ rub(current.price_per_page_kopecks) }} за страницу.
-            Ноль — бот цену не называет.
+            Копейки: 230 = {{ rub(230) }}. А4 — обычный лист, А3–А0 — крупный формат.
+            Ноль — этот формат в корпусе не печатают, бот его не предложит.
           </span>
-        </label>
-
-        <label class="field">
-          <span class="field-label">Цена за страницу, цветной (копеек)</span>
-          <input v-model.number="current.color_price_per_page_kopecks" type="number" min="0" placeholder="600" />
-          <span class="hint">
-            Копейки: 600 = {{ rub(600) }}, то есть {{ rub(current.color_price_per_page_kopecks) }} за страницу.
-            Ноль — цветной принтер выключен, бот предлагает только ЧБ.
-          </span>
-        </label>
+        </div>
 
         <label class="field">
           <span class="field-label">Корпус принимает заказы</span>
@@ -253,7 +281,7 @@ onUnmounted(() => window.removeEventListener('hashchange', applyHash));
       </div>
 
       <p v-if="noPrices" class="warn">
-        Обе цены нулевые: бот посчитает страницы, но не назовёт стоимость и не выставит счёт. Заполни хотя бы ЧБ.
+        Все цены нулевые: бот посчитает страницы и форматы, но не назовёт стоимость и не выставит счёт.
       </p>
 
       <div class="row" style="margin-top: 12px">
