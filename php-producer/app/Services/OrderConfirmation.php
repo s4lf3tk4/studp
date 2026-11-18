@@ -38,7 +38,9 @@ final class OrderConfirmation
                 'external_user_id' => $userId,
                 'chat_id' => $draft['recipient_id'] ?? null,
                 'original_name' => $draft['title'] ?? null,
-                'mime' => 'application/pdf',
+                'mime' => str_ends_with((string) ($draft['file_path'] ?? ''), '.docx')
+                    ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+                    : 'application/pdf',
                 'size_bytes' => $draft['size'] ?? 0,
                 'file_path' => $draft['file_path'],
                 'campus' => $draft['campus'] ?? null,

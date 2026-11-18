@@ -160,8 +160,10 @@ final class MaxWebhookHandler implements WebhookHandler
         $fileName = (string) ($file['filename'] ?? '');
         $extension = strtolower(pathinfo($fileName, PATHINFO_EXTENSION));
 
-        if ($extension !== 'pdf') {
-            return $this->reply($event, BotTexts::onlyPdf());
+        $allowed = ['pdf', 'docx'];
+
+        if (! in_array($extension, $allowed, true)) {
+            return $this->reply($event, BotTexts::wrongFormat());
         }
 
         if ($url === '' || $event->userId === null) {

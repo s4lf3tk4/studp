@@ -125,7 +125,7 @@ final class VkWebhookHandler implements WebhookHandler
                 ),
                 VkKeyboard::cancelBtn()
             );
-        }
+        }   
 
         [$text, $keyboard] = match ($command) {
             BotCommand::START => [BotTexts::welcome(), VkKeyboard::chosenCampus()],
@@ -145,8 +145,10 @@ final class VkWebhookHandler implements WebhookHandler
         $url = (string) ($event->doc['url'] ?? '');
         $extension = strtolower((string) ($event->doc['ext'] ?? ''));
 
-        if ($extension !== 'pdf') {
-            return $this->reply($event->peerId, BotTexts::onlyPdf());
+        $allowed = ['pdf', 'docx'];
+
+        if (! in_array($extension, $allowed, true)) {
+            return $this->reply($event->peerId, BotTexts::wrongFormat());
         }
 
         if ($url === '') {

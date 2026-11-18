@@ -13,22 +13,6 @@ class CampusScheduleSeeder extends Seeder
         // 1 = Пн … 7 = Вс. null — выходной.
         // is_active => false — корпус выключен: кнопка в VK станет красной, выбор запрещён.
         $schedule = [
-            'campus1' => [
-                'title' => 'Корпус 1',
-                'price_per_page_kopecks' => 240,
-                'address' => 'ул. Ленина, 12',
-                'room' => '305',
-                'is_active' => true,
-                'days' => [
-                    1 => ['opens_at' => '09:10', 'closes_at' => '18:00', 'lunch_starts_at' => '13:00', 'lunch_ends_at' => '14:00'],
-                    2 => ['opens_at' => '09:20', 'closes_at' => '18:00', 'lunch_starts_at' => '13:00', 'lunch_ends_at' => '14:00'],
-                    3 => ['opens_at' => '09:30', 'closes_at' => '18:00', 'lunch_starts_at' => '13:00', 'lunch_ends_at' => '14:00'],
-                    4 => ['opens_at' => '09:40', 'closes_at' => '18:00', 'lunch_starts_at' => '13:00', 'lunch_ends_at' => '14:00'],
-                    5 => ['opens_at' => '09:50', 'closes_at' => '18:00', 'lunch_starts_at' => '13:00', 'lunch_ends_at' => '14:00'],
-                    6 => ['opens_at' => '10:20', 'closes_at' => '15:00'],
-                    7 => null,
-                ],
-            ],
             'campus2' => [
                 'title' => 'Корпус 2',
                 'price_per_page_kopecks' => 230,
@@ -58,22 +42,6 @@ class CampusScheduleSeeder extends Seeder
                     4 => ['opens_at' => '09:00', 'closes_at' => '18:00', 'lunch_starts_at' => '13:00', 'lunch_ends_at' => '14:00'],
                     5 => ['opens_at' => '09:00', 'closes_at' => '18:00', 'lunch_starts_at' => '13:00', 'lunch_ends_at' => '14:00'],
                     6 => null,
-                    7 => null,
-                ],
-            ],
-            'campus4' => [
-                'title' => 'Корпус 4',
-                'price_per_page_kopecks' => 210,
-                'address' => 'ул. Садовая, 8',
-                'room' => '3',
-                'is_active' => false,   // ← для проверки красной кнопки
-                'days' => [
-                    1 => ['opens_at' => '09:00', 'closes_at' => '17:00', 'lunch_starts_at' => '12:00', 'lunch_ends_at' => '13:00'],
-                    2 => ['opens_at' => '09:00', 'closes_at' => '17:00', 'lunch_starts_at' => '12:00', 'lunch_ends_at' => '13:00'],
-                    3 => ['opens_at' => '09:00', 'closes_at' => '17:00', 'lunch_starts_at' => '12:00', 'lunch_ends_at' => '13:00'],
-                    4 => ['opens_at' => '09:00', 'closes_at' => '17:00', 'lunch_starts_at' => '12:00', 'lunch_ends_at' => '13:00'],
-                    5 => ['opens_at' => '09:00', 'closes_at' => '17:00', 'lunch_starts_at' => '12:00', 'lunch_ends_at' => '13:00'],
-                    6 => ['opens_at' => '11:00', 'closes_at' => '15:00'],
                     7 => null,
                 ],
             ],

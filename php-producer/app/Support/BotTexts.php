@@ -25,6 +25,30 @@ final class BotTexts
     {
         return 'Сначала выберите корпус, в котором нужно распечатать:';
     }
+
+
+
+    /** Не тот формат: подсказываем, как получить PDF */
+    public static function wrongFormat(): string
+    {
+        return "Принимаю PDF или DOCX.\n\n"
+            .'Старый формат .doc сохраните как PDF:'."\n"
+            .'Word → «Файл» → «Сохранить как» → тип «PDF»'."\n\n"
+            .'На телефоне: Word → «Поделиться» → «Экспорт в PDF».';
+    }
+
+    /** Ответ для DOCX: честно говорим, откуда число страниц */
+    public static function pagesFromDocx(int $count, ?int $pricePerPageKopecks = null): string
+    {
+        $text = "В документе {$count} стр. (по данным файла Word).";
+
+        if ($pricePerPageKopecks !== null) {
+            $text .= "\nСтоимость: ".Money::rub($count * $pricePerPageKopecks)
+                .' ('.Money::rub($pricePerPageKopecks).' за страницу)';
+        }
+
+        return $text."\n\nТипография откроет файл в Word — вёрстка останется вашей.";
+    }
     
     /** @param int|null $queued сколько оплаченных документов уже ждёт печати в этом корпусе */
     public static function campusChosen(

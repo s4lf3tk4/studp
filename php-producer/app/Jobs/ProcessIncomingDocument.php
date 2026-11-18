@@ -21,20 +21,19 @@ final class ProcessIncomingDocument implements ShouldQueue
 {
     use Queueable;
 
-    /** Скачивание + подсчёт: меньше retry_after (REDIS_QUEUE_RETRY_AFTER=300) */
+
     public int $timeout = 280;
     public int $tries = 3;
     public int $backoff = 10;
 
-
     public function __construct(
-        public readonly string $platform,       // 'max' | 'vk'
-        public readonly int $recipientId,       // MAX: user_id, VK: peer_id
+        public readonly string $platform,      
+        public readonly int $recipientId,     
         public readonly string $fileUrl,
         public readonly ?string $fileName = null,
         public readonly ?string $extension = null,
         public readonly ?int $size = null,
-        public readonly ?int $userId = null,     // кто отправил (VK: from_id)
+        public readonly ?int $userId = null,    // кто отправил (VK: from_id)
         public readonly ?string $campus = null,
     ) {}
 
@@ -43,8 +42,8 @@ final class ProcessIncomingDocument implements ShouldQueue
         // Дешёвые проверки до скачивания — не тянем мегабайты зря
         $extension = strtolower((string) ($this->extension ?: pathinfo((string) $this->fileName, PATHINFO_EXTENSION)));
 
-        if ($extension !== 'pdf') {
-            $this->reply('Принимаю только PDF. В Word: «Файл → Сохранить как → PDF»');
+        if (! in_array($extension, ['pdf', 'docx'], true)) {
+            $this->reply(BotTexts::wrongFormat());
 
             return;
         }
@@ -58,14 +57,37 @@ final class ProcessIncomingDocument implements ShouldQueue
         // Файл скачиваем один раз и оставляем себе: подписанная ссылка VK/MAX
         // рано или поздно перестанет открываться, а для печати нужны байты
         $disk = Storage::disk('documents');
-        $path = sprintf('%s/%s/%s.pdf', $this->platform, now()->format('Y/m'), (string) Str::uuid());
+        $path = sprintf('%s/%s/%s.%s', $this->platform, now()->format('Y/m'), (string) Str::uuid(), $extension);
 
-        $disk->makeDirectory(dirname($path));   // vk/2026/10 — иначе curl не запишет файл
+        $disk->makeDirectory(dirname($path));
         $absolute = $disk->path($path);
 
         try {
             $this->download($absolute);
-            $pages = $counter->countFromFile($absolute);
+
+            // Платформа может прислать неверное расширение — сверяем с содержимым
+            $realExtension = $this->detectRealExtension($absolute, $extension);
+
+            if ($realExtension !== $extension) {
+                Log::notice('Расширение не совпало с содержимым', [
+                    'platform' => $this->platform,
+                    'declared' => $extension,
+                    'real' => $realExtension,
+                    'file_path' => $path,
+                ]);
+
+                // Переименовываем файл, чтобы админка видела правильный тип
+                $newPath = (string) preg_replace('/\.[a-z0-9]+$/i', '.'.$realExtension, $path);
+                $disk->move($path, $newPath);
+
+                $path = $newPath;
+                $absolute = $disk->path($path);
+                $extension = $realExtension;
+            }
+
+            $pages = $extension === 'docx'
+                ? $counter->countFromDocx($absolute)
+                : $counter->countFromFile($absolute);
         } catch (RuntimeException $e) {
             $disk->delete($path);
 
@@ -79,9 +101,16 @@ final class ProcessIncomingDocument implements ShouldQueue
                 'error' => $e->getMessage(),
             ]);
 
-            // Сетевой сбой — повторяем; битый PDF повторять бессмысленно
+            // Сетевой сбой — повторяем; битый файл повторять бессмысленно
             if ($transient && $hasTries) {
                 $this->release($this->backoff);
+
+                return;
+            }
+
+            // DOCX без метаданных (экспорт из Google Docs и подобное)
+            if (str_contains($e->getMessage(), 'нет данных о страницах')) {
+                $this->reply(BotTexts::wrongFormat());
 
                 return;
             }
@@ -91,6 +120,7 @@ final class ProcessIncomingDocument implements ShouldQueue
             return;
         }
 
+        // Цена зависит от корпуса — считаем её ДО формирования текста
         $campus = $this->campus !== null
             ? Campus::query()->where('code', $this->campus)->first()
             : null;
@@ -107,6 +137,7 @@ final class ProcessIncomingDocument implements ShouldQueue
             'user_id' => $this->userId,
             'campus' => $this->campus,
             'pages' => $pages,
+            'extension' => $extension,
             'price_per_page_kopecks' => $pricePerPage,
             'file_path' => $path,
         ]);
@@ -119,20 +150,49 @@ final class ProcessIncomingDocument implements ShouldQueue
 
         $keyboard = $this->platform === 'max' ? MaxKeyboard::confirmOrCancel() : VkKeyboard::confirmOrCancel();
 
-        $this->reply(BotTexts::pages($pages, $pricePerPage), $keyboard);
+        // Текст зависит от формата: для DOCX честно указываем источник числа страниц
+        $text = $extension === 'docx'
+            ? BotTexts::pagesFromDocx($pages, $pricePerPage)
+            : BotTexts::pages($pages, $pricePerPage);
+
+        $this->reply($text, $keyboard);
     }
-    
+
     private function maxBytes(): int
     {
         return (int) config("services.{$this->platform}.max_file_bytes", 30 * 1024 * 1024);
     }
 
-        /** Скачивание в файл: для MAX нужен заголовок Authorization */
+    /** Настоящий тип по первым байтам: платформа может прислать неверное расширение */
+    private function detectRealExtension(string $absolute, string $declared): string
+    {
+        $handle = @fopen($absolute, 'rb');
+
+        if ($handle === false) {
+            return $declared;
+        }
+
+        $head = (string) fread($handle, 8);
+        fclose($handle);
+
+        if (str_starts_with($head, '%PDF-')) {
+            return 'pdf';
+        }
+
+        if (str_starts_with($head, "PK\x03\x04")) {
+            return 'docx';   // zip-контейнер: docx, xlsx, pptx
+        }
+
+        return $declared;
+    }
+
+    /** Скачивание в файл: для MAX нужен заголовок Authorization */
     private function download(string $absolutePath): void
     {
         $timeout = (int) config('services.documents.download_timeout', 150);
         $command = 'curl -sS -m '.$timeout.' --connect-timeout 10 -L -o '.escapeshellarg($absolutePath)
             .' -w '.escapeshellarg('%{http_code}');
+
         if ($this->platform === 'max') {
             $command .= ' -H '.escapeshellarg('Authorization: '.(string) config('services.max.access_token'));
         }
@@ -177,7 +237,7 @@ final class ProcessIncomingDocument implements ShouldQueue
             'error' => $e->getMessage(),
         ]);
 
-        $this->reply('Не удалось обработать файл: '.$e->getMessage());
+        $this->reply(BotTexts::countFailed($e->getMessage()));
     }
 
     /** Ответ пользователю: у MAX клавиатура — элемент вложений, у VK — отдельный параметр */

@@ -5,12 +5,15 @@ use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Schedule;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Log;
 
 use App\Models\Payment;
 use App\Services\Payments\PaymentSettlement;
 use App\Services\Payments\TinkoffClient;
 use App\Services\Payments\TinkoffGateway;
 use App\Services\Payments\TinkoffSignature;
+
+
 
 
 
@@ -30,6 +33,7 @@ use App\Services\Payments\TinkoffSignature;
 
             return;
         }
+        
 
         $client = TinkoffClient::fromConfig();
         $status = strtoupper((string) $this->option('status'));
@@ -59,12 +63,6 @@ use App\Services\Payments\TinkoffSignature;
 
 Artisan::command('payments:check {--minutes=10} {--limit=50}', function () {
     $gateway = app(TinkoffGateway::class);
-
-    if (! $gateway instanceof TinkoffGateway) {
-        $this->error('Провайдер не Т-Банк — проверка статусов не поддерживается');
-
-        return;
-    }
 
     $settlement = app(PaymentSettlement::class);
     $checked = 0;
@@ -159,8 +157,7 @@ Artisan::command('documents:prune {--unpaid-days=1} {--paid-days=0} {--archive-d
             ->where('created_at', '<', now()->subDays($paidDays)));
     }
 
-    // Напечатанные и выданные: архив, живёт archive-days дней с момента
-    // последнего изменения статуса (0 — хранить бессрочно)
+    // Напечатанные и выданные: архив, живёт archive-days дней
     if ($archiveDays > 0) {
         $targets->orWhere(fn ($sub) => $sub
             ->whereIn('status', [Document::STATUS_PRINTED, Document::STATUS_ISSUED])
@@ -190,19 +187,23 @@ Artisan::command('documents:prune {--unpaid-days=1} {--paid-days=0} {--archive-d
                 $files++;
             }
         } catch (\Throwable $e) {
-            \Illuminate\Support\Facades\Log::error('Не удалось удалить файл заказа', [
+            Log::error('Не удалось удалить файл заказа', [
                 'path' => $path,
                 'error' => $e->getMessage(),
             ]);
         }
     }
 
-    // Сироты: PDF без записи в БД
+    // Сироты: файлы без записи в БД (pdf и docx)
     $known = array_flip(Document::query()->whereNotNull('file_path')->pluck('file_path')->all());
     $limit = now()->subDays((int) $this->option('days'))->getTimestamp();
 
     foreach ($disk->allFiles() as $path) {
-        if (! str_ends_with($path, '.pdf') || isset($known[$path]) || $disk->lastModified($path) > $limit) {
+        $extension = strtolower(pathinfo($path, PATHINFO_EXTENSION));
+
+        if (! in_array($extension, ['pdf', 'docx'], true)
+            || isset($known[$path])
+            || $disk->lastModified($path) > $limit) {
             continue;
         }
 
@@ -216,7 +217,7 @@ Artisan::command('documents:prune {--unpaid-days=1} {--paid-days=0} {--archive-d
         try {
             $disk->delete($path);
         } catch (\Throwable $e) {
-            \Illuminate\Support\Facades\Log::error('Не удалось удалить файл-сироту', [
+            Log::error('Не удалось удалить файл-сироту', [
                 'path' => $path,
                 'error' => $e->getMessage(),
             ]);
