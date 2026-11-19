@@ -265,6 +265,8 @@ final class BotTexts
         return $paymentUrl !== null ? $text."\n\nОплатить: {$paymentUrl}" : $text;
     }
 
+
+
     public static function orderPrinted(
         int $id,
         string $fileName,
@@ -316,15 +318,38 @@ final class BotTexts
             ."Файлы в этом режиме бот не считает.\n\n"
             .'Кнопка «Вернуться к боту» всегда внизу.';
     }
-        /** Уведомление оператору: кто перешёл в режим оператора */
-    public static function operatorRequested(?string $name, int $userId): string
-    {
+    /** Уведомление оператору: кто перешёл в режим оператора и где печатать */
+    public static function operatorRequested(
+        ?string $name,
+        int $userId,
+        ?string $campusTitle = null,
+        ?string $title = null,
+    ): string {
         $who = $name !== null && trim($name) !== '' ? trim($name) : 'имя не получено';
 
-        return "Пользователь перешёл в режим оператора.\n\n"
+        $text = ($title ?? 'Пользователь перешёл в режим оператора.')."\n\n"
             ."Имя: {$who}\n"
-            ."id: {$userId}\n\n"
-            .'Ответить: ВК → «Сообщения сообщества» → этот диалог.';
+            ."id: {$userId}\n";
+
+        if ($campusTitle !== null && $campusTitle !== '') {
+            $text .= "Корпус: {$campusTitle}\n";
+        }
+
+        return $text."\nОтветить: ВК → «Сообщения сообщества» → этот диалог.";
+    }
+
+        /** Просьба выбрать корпус в режиме оператора */
+    public static function operatorCampusRequired(): string
+    {
+        return 'Выберите корпус, где нужно напечатать — оператор увидит его в заявке.';
+    }
+
+    /** Корпус для оператора выбран */
+    public static function operatorCampusChosen(string $campusTitle): string
+    {
+        return "Корпус: {$campusTitle}.\n\n"
+            .'Пишите сообщения — их увидит сотрудник типографии. '
+            .'Кнопка «Вернуться к боту» всегда внизу.';
     }
 
         /** Фото приняты: сколько в этой пачке и сколько всего */

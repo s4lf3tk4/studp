@@ -84,8 +84,12 @@ final class VkWebhookHandler implements WebhookHandler
             return $this->switchToBot($peerId, $userId);
         }
 
-        // Режим оператора: переписка идёт в интерфейсе сообщества ВК, бот не отвечает
+        // Режим оператора: без корпуса принимаем только его выбор, дальше бот молчит
         if (ChatState::isOperator('vk', $userId)) {
+            if ($command !== null && BotCommand::isCampus($command)) {
+                return $this->chooseOperatorCampus($peerId, $userId, $command);
+            }
+
             return response('ok');
         }
 
@@ -131,20 +135,23 @@ final class VkWebhookHandler implements WebhookHandler
         return response('ok');
     }
 
-    /** Переход в режим оператора: запоминаем имя, уведомляем оператора, даём кнопку возврата */
     private function switchToOperator(int $peerId, int $userId): Response
     {
         $name = app(VkUserResolver::class)->name($userId);
 
         ChatState::setMode('vk', $userId, ChatState::MODE_OPERATOR, $name);
 
-        $this->notifyOperator($userId, $name);
+        $this->notifyOperator($userId, $name, $this->campusTitle(ChatState::campusFor('vk', $userId)));
 
-        return $this->reply($peerId, BotTexts::operatorWelcome(), VkKeyboard::backToBot());
+        return $this->reply(
+            $peerId,
+            BotTexts::operatorWelcome()."\n\n".BotTexts::operatorCampusRequired(),
+            VkKeyboard::operatorCampus(),
+        );
     }
 
     /** Оператору на его личный id уходит сообщение от лица сообщества */
-    private function notifyOperator(int $userId, ?string $name): void
+    private function notifyOperator(int $userId, ?string $name, ?string $campusTitle = null, ?string $title = null): void
     {
         $operatorId = (int) config('services.vk.operator_id', 0);
 
@@ -154,7 +161,50 @@ final class VkWebhookHandler implements WebhookHandler
             return;
         }
 
-        dispatch(SendBotReply::vk($operatorId, BotTexts::operatorRequested($name, $userId)));
+        dispatch(SendBotReply::vk(
+            $operatorId,
+            BotTexts::operatorRequested($name, $userId, $campusTitle, $title),
+        ));
+    }
+
+        /** Корпус в режиме оператора: запоминаем и сообщаем оператору, если выбор изменился */
+    private function chooseOperatorCampus(int $peerId, int $userId, string $command): Response
+    {
+        $campus = Campus::query()->where('code', $command)->first();
+
+        if ($campus === null) {
+            return response('ok');
+        }
+
+        $previous = ChatState::campusFor('vk', $userId);
+
+        ChatState::setMode('vk', $userId, ChatState::MODE_OPERATOR, null, (string) $campus->code);
+
+        if ($previous !== (string) $campus->code) {
+            $this->notifyOperator(
+                $userId,
+                app(VkUserResolver::class)->name($userId),
+                (string) $campus->title,
+                'Клиент выбрал корпус для печати.',
+            );
+        }
+
+        return $this->reply(
+            $peerId,
+            BotTexts::operatorCampusChosen((string) $campus->title),
+            VkKeyboard::backToBot(),
+        );
+    }
+
+    private function campusTitle(?string $code): ?string
+    {
+        if ($code === null) {
+            return null;
+        }
+
+        $title = Campus::query()->where('code', $code)->value('title');
+
+        return is_string($title) ? $title : null;
     }
 
     /** Возврат к боту: обычное меню с корпусами */

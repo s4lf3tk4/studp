@@ -176,7 +176,47 @@ final class VkKeyboard
             ],
         ];
     }
+    
+        /** Режим оператора: те же кнопки корпусов, что перед печатью, плюс возврат к боту */
+    public static function operatorCampus(): ?array
+    {
+        $campuses = self::campuses();
 
+        if ($campuses === []) {
+            return self::backToBot();
+        }
+
+        $buttons = [];
+
+        foreach ($campuses as $code => $campus) {
+            $buttons[] = [
+                'action' => [
+                    'type' => 'text',
+                    'label' => $campus['label'],
+                    'payload' => json_encode(['command' => $code], JSON_UNESCAPED_UNICODE),
+                ],
+                'color' => $campus['active'] ? 'primary' : 'negative',
+            ];
+        }
+
+        $rows = array_chunk($buttons, self::PER_ROW);
+
+        $rows[] = [
+            [
+                'action' => [
+                    'type' => 'text',
+                    'label' => 'Вернуться к боту',
+                    'payload' => json_encode(['command' => BotCommand::CHAT_BOT], JSON_UNESCAPED_UNICODE),
+                ],
+                'color' => 'secondary',
+            ],
+        ];
+
+        return [
+            'one_time' => false,
+            'buttons' => $rows,
+        ];
+    }
         /** Экран цены: подтвердить, отмена и выбор страниц другого режима */
     public static function confirmOrPickPages(bool $baseIsColor): array
     {
