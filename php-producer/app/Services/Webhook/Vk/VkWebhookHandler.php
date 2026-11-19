@@ -2,6 +2,8 @@
 
 namespace App\Services\Webhook\Vk;
 
+use App\Jobs\CollectIncomingPhotos;
+use App\Jobs\FinalizePhotoOrder;
 use App\Jobs\ProcessIncomingDocument;
 use App\Jobs\SendBotReply;
 use App\Models\Campus;
@@ -12,17 +14,19 @@ use App\Services\DocumentStore;
 use App\Services\EventStore;
 use App\Services\OrderCancellation;
 use App\Services\OrderConfirmation;
+use App\Services\PageSelection;
+use App\Services\PhotoInbox;
 use App\Services\PrintModeChoice;
 use App\Services\VkUserResolver;
 use App\Services\Webhook\BotCommand;
 use App\Services\Webhook\WebhookHandler;
 use App\Support\BotTexts;
+use App\Support\PriceList;
+use App\Support\PrintMode;
 use App\Support\ScheduleText;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 use Symfony\Component\HttpFoundation\Response;
-use App\Jobs\CollectIncomingPhotos;
-use App\Jobs\FinalizePhotoOrder;
-use App\Services\PhotoInbox;
 
 final class VkWebhookHandler implements WebhookHandler
 {
@@ -36,25 +40,6 @@ final class VkWebhookHandler implements WebhookHandler
     public function handle(array $payload): Response
     {
         $event = VkEvent::fromPayload($payload);
-                // Временная диагностика фото: пишем сырое событие в отдельный файл
-        if (($payload['type'] ?? '') === 'message_new') {
-            $attachments = $payload['object']['message']['attachments'] ?? [];
-
-            if ($attachments !== []) {
-                @file_put_contents(
-                    storage_path('logs/vk-attachments.log'),
-                    json_encode([
-                        'event_id' => $payload['event_id'] ?? null,
-                        'message_id' => $payload['object']['message']['id'] ?? null,
-                        'conversation_message_id' => $payload['object']['message']['conversation_message_id'] ?? null,
-                        'date' => $payload['object']['message']['date'] ?? null,
-                        'count' => count($attachments),
-                        'types' => array_map(fn (array $a): string => (string) ($a['type'] ?? '?'), $attachments),
-                    ], JSON_UNESCAPED_UNICODE).PHP_EOL,
-                    FILE_APPEND,
-                );
-            }
-        }
 
         // Подтверждение адреса Callback API: ровно код, без JSON
         if ($event->type === 'confirmation') {
@@ -85,21 +70,44 @@ final class VkWebhookHandler implements WebhookHandler
             return response('ok');
         }
 
+        $peerId = $event->peerId;
+
         // Кто отправил: в личке совпадает с peer_id, в беседе — нет
-        $userId = $event->userId ?? $event->peerId;
+        $userId = $event->userId ?? $peerId;
 
         // Переключение режима работает всегда, в любом состоянии
         if ($command === BotCommand::CHAT_OPERATOR) {
-            return $this->switchToOperator($event->peerId, $userId);
+            return $this->switchToOperator($peerId, $userId);
         }
 
         if ($command === BotCommand::CHAT_BOT) {
-            return $this->switchToBot($event->peerId, $userId);
+            return $this->switchToBot($peerId, $userId);
         }
 
         // Режим оператора: переписка идёт в интерфейсе сообщества ВК, бот не отвечает
         if (ChatState::isOperator('vk', $userId)) {
             return response('ok');
+        }
+
+        // Ждём номера страниц: принимаем только текст, «отмена» и отмену кнопкой
+        $pending = app(PageSelection::class)->get('vk', $userId);
+
+        if ($pending !== null) {
+            if ($command === BotCommand::CANCEL) {
+                app(PageSelection::class)->forget('vk', $userId);
+
+                return $this->reply($peerId, BotTexts::pagesCanceled(), VkKeyboard::printMode());
+            }
+
+            if ($command !== null) {
+                return $this->reply(
+                    $peerId,
+                    BotTexts::pagesInvalid($this->draftPages('vk', $userId)),
+                    VkKeyboard::cancelBtn(),
+                );
+            }
+
+            return $this->handlePagesInput($event, $userId, $pending);
         }
 
         // Фото: собираем в один заказ, даже если пришли несколькими сообщениями
@@ -116,7 +124,7 @@ final class VkWebhookHandler implements WebhookHandler
         }
 
         if ($event->text !== null && $event->text !== '') {
-            return $this->reply($event->peerId, BotTexts::unknownCommand(), VkKeyboard::chosenCampus());
+            return $this->reply($peerId, BotTexts::unknownCommand(), VkKeyboard::chosenCampus());
         }
 
         // VK считает событие доставленным только при ответе "ok" и HTTP 200
@@ -193,12 +201,19 @@ final class VkWebhookHandler implements WebhookHandler
             );
         }
 
+        // «Цветные страницы» / «ЧБ страницы»
+        if (BotCommand::isPagesPick($command)) {
+            return $this->startPageSelection($peerId, $userId, $command);
+        }
+
         // Принтер: цена ЧБ и цветного разная, поэтому спрашиваем до выставления счёта
         if (BotCommand::isMode($command)) {
             $result = app(PrintModeChoice::class)->choose('vk', $userId, (string) BotCommand::mode($command));
 
             $keyboard = match ($result['stage']) {
-                PrintModeChoice::STAGE_CONFIRM => VkKeyboard::confirmOrCancel(),
+                PrintModeChoice::STAGE_CONFIRM => VkKeyboard::confirmOrPickPages(
+                    ($result['mode'] ?? '') === PrintMode::COLOR,
+                ),
                 PrintModeChoice::STAGE_MODE => VkKeyboard::printMode(),
                 default => VkKeyboard::chosenCampus(),
             };
@@ -249,6 +264,100 @@ final class VkWebhookHandler implements WebhookHandler
         return $this->reply($peerId, $text, $keyboard);
     }
 
+    /** Нажали «Цветные страницы» / «ЧБ страницы»: включаем ожидание номеров */
+    private function startPageSelection(int $peerId, int $userId, string $command): Response
+    {
+        $draft = app(DocumentStore::class)->get('vk', $userId);
+        $baseMode = (string) ($draft['print_mode'] ?? '');
+        $exceptionMode = BotCommand::exceptionMode($command);
+
+        if ($draft === null || $baseMode === '' || $exceptionMode === null) {
+            return $this->reply($peerId, BotTexts::orderNotFound(), VkKeyboard::chosenCampus());
+        }
+
+        app(PageSelection::class)->start('vk', $userId, $baseMode, $exceptionMode);
+
+        $label = PrintMode::label($exceptionMode) ?? $exceptionMode;
+
+        return $this->reply(
+            $peerId,
+            BotTexts::pagesPrompt($label, (int) ($draft['pages'] ?? 0)),
+            VkKeyboard::cancelBtn(),
+        );
+    }
+
+    /** Разбор «1 2 5 10»: только цифры и пробелы, иначе просим заново */
+    private function handlePagesInput(VkEvent $event, int $userId, array $pending): Response
+    {
+        $peerId = (int) $event->peerId;
+        $draft = app(DocumentStore::class)->get('vk', $userId);
+
+        if ($draft === null) {
+            app(PageSelection::class)->forget('vk', $userId);
+
+            return $this->reply($peerId, BotTexts::orderNotFound(), VkKeyboard::chosenCampus());
+        }
+
+        $pages = (int) ($draft['pages'] ?? 0);
+        $raw = trim((string) $event->text);
+
+        if (preg_match('/^\d+(?:\s+\d+)*$/', $raw) !== 1) {
+            return $this->reply($peerId, BotTexts::pagesInvalid($pages), VkKeyboard::cancelBtn());
+        }
+
+        $numbers = array_values(array_unique(array_map('intval', preg_split('/\s+/', $raw) ?: [])));
+        sort($numbers);
+
+        foreach ($numbers as $number) {
+            if ($number < 1 || $number > $pages) {
+                return $this->reply($peerId, BotTexts::pagesOutOfRange($pages), VkKeyboard::cancelBtn());
+            }
+        }
+
+        $campus = isset($draft['campus'])
+            ? Campus::query()->where('code', (string) $draft['campus'])->first()
+            : null;
+
+        $breakdown = PriceList::forCampus($campus)->mixedBreakdown(
+            $pending['base_mode'],
+            $pending['exception_mode'],
+            is_array($draft['page_formats'] ?? null) ? $draft['page_formats'] : [],
+            $numbers,
+        );
+
+        if ($breakdown === null) {
+            app(PageSelection::class)->forget('vk', $userId);
+
+            return $this->reply(
+                $peerId,
+                BotTexts::priceMissing([PrintMode::label($pending['exception_mode']) ?? '']),
+                VkKeyboard::chosenCampus(),
+            );
+        }
+
+        app(DocumentStore::class)->exceptions('vk', $userId, $numbers, $breakdown['total']);
+        app(PageSelection::class)->forget('vk', $userId);
+
+        return $this->reply(
+            $peerId,
+            BotTexts::modeConfirmedMixed(
+                PrintMode::label($pending['base_mode']) ?? $pending['base_mode'],
+                PrintMode::label($pending['exception_mode']) ?? $pending['exception_mode'],
+                $breakdown['groups'],
+                $breakdown['total'],
+                str_ends_with((string) ($draft['file_path'] ?? ''), '.docx'),
+            ),
+            VkKeyboard::confirmOrPickPages($pending['base_mode'] === PrintMode::COLOR),
+        );
+    }
+
+    private function draftPages(string $platform, int $userId): int
+    {
+        $draft = app(DocumentStore::class)->get($platform, $userId);
+
+        return (int) ($draft['pages'] ?? 0);
+    }
+
     /** Пачка фото: качаем и складываем в сбор на очереди photos */
     private function handlePhotos(VkEvent $event, int $userId): Response
     {
@@ -261,6 +370,7 @@ final class VkWebhookHandler implements WebhookHandler
                 $event->message['attachments'] ?? [],
             ),
         ]);
+
         $campus = app(CampusChoice::class)->get('vk', $userId);
 
         if ($campus === null) {
@@ -286,7 +396,7 @@ final class VkWebhookHandler implements WebhookHandler
     private function cancelPhotos(int $peerId, int $userId): Response
     {
         $inbox = app(PhotoInbox::class);
-        $disk = \Illuminate\Support\Facades\Storage::disk('documents');
+        $disk = Storage::disk('documents');
 
         foreach ($inbox->items('vk', $userId) as $path) {
             $disk->delete($path);

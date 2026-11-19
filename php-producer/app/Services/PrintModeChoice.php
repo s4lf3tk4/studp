@@ -57,6 +57,7 @@ final class PrintModeChoice
                     $priceList->missing($mode, $formats),
                 ),
                 'stage' => self::STAGE_MODE,
+                'mode' => $mode,
             ];
         }
 
@@ -77,6 +78,7 @@ final class PrintModeChoice
                 str_ends_with((string) ($draft['file_path'] ?? ''), '.docx'),
             ),
             'stage' => self::STAGE_CONFIRM,
+            'mode' => $mode,
         ];
     }
 }

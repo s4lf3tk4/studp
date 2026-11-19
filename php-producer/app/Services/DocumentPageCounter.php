@@ -264,6 +264,106 @@ final class DocumentPageCounter
 
         return $pages;
     }
+    
+    /**
+     * Формат каждой страницы PDF: номер страницы => формат.
+     * Нумерация с 1, пропуски заполняются A4.
+     *
+     * @return array<int, string>
+     */
+    public function pageFormats(string $path, int $pages): array
+    {
+        $last = max(1, min($pages, self::MAX_PAGES));
+
+        $output = $this->run('pdfinfo -f 1 -l '.$last.' '.escapeshellarg($path).' 2>&1');
+
+        $found = [];
+
+        foreach ($output as $line) {
+            if (preg_match('/^Page\s+(\d+)\s+size:\s+([\d.]+)\s+x\s+([\d.]+)\s+pts/i', $line, $m) !== 1) {
+                continue;
+            }
+
+            $found[(int) $m[1]] = PaperFormat::fromPoints((float) $m[2], (float) $m[3]);
+        }
+
+        $formats = [];
+
+        for ($page = 1; $page <= $pages; $page++) {
+            $formats[$page] = $found[$page] ?? PaperFormat::A4;
+        }
+
+        return $formats;
+    }
+
+        /**
+     * Формат каждой страницы DOCX по секциям: номер страницы => формат.
+     * Секции идут в порядке документа, каждая занимает свои страницы.
+     *
+     * @return array<int, string>
+     */
+    /**
+     * Формат каждой страницы DOCX по секциям: номер страницы => формат.
+     * Если секционный счётчик недосчитал страницы, добиваем форматом последней секции,
+     * а композицию сверяем с formatsFromDocx() — по ней уже названа цена.
+     *
+     * @return array<int, string>
+     */
+    public function docxPageFormats(string $path, int $pages): array
+    {
+        [, $body] = $this->docxParts($path);
+
+        $list = [];
+
+        foreach ($this->docxSections($body) as $section) {
+            for ($i = 0; $i < $section['pages']; $i++) {
+                $list[] = $section['format'];
+            }
+        }
+
+        if ($list === []) {
+            $list = array_fill(0, $pages, PaperFormat::A4);
+        }
+
+        $list = array_slice(array_values($list), 0, $pages);
+
+        // Недосчитанные страницы продолжают последнюю секцию, а не превращаются в A4
+        while (count($list) < $pages) {
+            $list[] = $list[count($list) - 1];
+        }
+
+        // Композиция форматов должна совпадать с той, по которой посчитана первая цена
+        $counts = $this->formatsFromDocx($path, $pages);
+        $actual = array_count_values($list);
+
+        ksort($actual);
+        ksort($counts);
+
+        if ($actual !== $counts) {
+            \Illuminate\Support\Facades\Log::channel('stderr')->warning('Форматы DOCX по страницам не совпали со счётчиками', [
+                'file' => basename($path),
+                'pages' => $pages,
+                'by_pages' => $actual,
+                'by_counts' => $counts,
+            ]);
+
+            $list = [];
+
+            foreach ($counts as $format => $count) {
+                for ($i = 0; $i < (int) $count; $i++) {
+                    $list[] = (string) $format;
+                }
+            }
+        }
+
+        $formats = [];
+
+        foreach ($list as $index => $format) {
+            $formats[$index + 1] = $format;
+        }
+
+        return $formats;
+    }
 
     /** @return array<int, string> */
     private function run(string $shellCommand): array

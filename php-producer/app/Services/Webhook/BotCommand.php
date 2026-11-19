@@ -16,6 +16,8 @@ final class BotCommand
     public const CHAT_BOT = 'chat_bot';
     public const PHOTOS_DONE = 'photos_done';
     public const PHOTOS_CANCEL = 'photos_cancel';
+    public const PAGES_COLOR = 'pages_color';
+    public const PAGES_BW = 'pages_bw';
 
     /** Команды кнопок режима печати => режим в заказе */
     public const MODES = [
@@ -47,6 +49,9 @@ final class BotCommand
         'бот' => self::CHAT_BOT,
         'подтвердить всё' => self::PHOTOS_DONE,
         'удалить всё' => self::PHOTOS_CANCEL,
+        'цветные страницы' => self::PAGES_COLOR,
+        'чб страницы' => self::PAGES_BW,
+        'ч/б страницы' => self::PAGES_BW,
     ];
 
     /** «Корпус 2» текстом → campus2: код одинаковый для клавиатуры и для БД */
@@ -84,6 +89,22 @@ final class BotCommand
     public static function isPhotoDecision(string $command): bool
     {
         return in_array($command, [self::PHOTOS_DONE, self::PHOTOS_CANCEL], true);
+    }
+
+        /** Нажали «Цветные страницы» / «ЧБ страницы» */
+    public static function isPagesPick(string $command): bool
+    {
+        return in_array($command, [self::PAGES_COLOR, self::PAGES_BW], true);
+    }
+
+    /** Какой режим печатать для выбранных страниц */
+    public static function exceptionMode(string $command): ?string
+    {
+        return match ($command) {
+            self::PAGES_COLOR => \App\Support\PrintMode::COLOR,
+            self::PAGES_BW => \App\Support\PrintMode::BW,
+            default => null,
+        };
     }
 
     /**

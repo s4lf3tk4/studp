@@ -234,7 +234,7 @@ final class BotTexts
         return 'Формирую ссылку на оплату…';
     }
 
-        public static function orderConfirmed(
+    public static function orderConfirmed(
         int $id,
         string $fileName,
         int $pages,
@@ -242,6 +242,7 @@ final class BotTexts
         ?string $paymentUrl = null,
         ?string $modeLabel = null,
         ?string $formats = null,
+        ?string $specialPages = null,
     ): string {
         $text = "Заказ №{$id}\n"
             ."Файл: {$fileName}\n"
@@ -253,6 +254,10 @@ final class BotTexts
 
         if ($modeLabel !== null) {
             $text .= "Печать: {$modeLabel}\n";
+        }
+
+        if ($specialPages !== null && $specialPages !== '') {
+            $text .= "Другой режим: {$specialPages}\n";
         }
 
         $text .= 'К оплате: '.Money::rub($amountKopecks);
@@ -348,6 +353,62 @@ final class BotTexts
     {
         return "За раз принимаю не больше {$limit} страниц.\n"
             .'Нажмите «Подтвердить» — этот заказ оформлю, остальные пришлите следующим.';
+    }
+
+        /** Просьба прислать номера страниц */
+    public static function pagesPrompt(string $exceptionLabel, int $pages): string
+    {
+        return "Какие страницы печатать «{$exceptionLabel}»?\n\n"
+            ."Напишите номера через пробел, например: 1 3 5\n"
+            ."Всего в документе {$pages} стр.\n\n"
+            .'«Отмена» — вернуться к выбору режима.';
+    }
+
+    /** Неверный формат ввода */
+    public static function pagesInvalid(int $pages): string
+    {
+        return "Не понял. Нужны только номера страниц через пробел, например: 1 3 5\n"
+            ."Всего в документе {$pages} стр. Запятые и текст не подойдут.\n\n"
+            .'Или напишите «отмена».';
+    }
+
+    /** Номера вне диапазона */
+    public static function pagesOutOfRange(int $pages): string
+    {
+        return "Такой страницы в документе нет: их всего {$pages}.\n"
+            ."Напишите номера от 1 до {$pages}, например: 1 3 5. Или «отмена».";
+    }
+
+    /** Отменили выбор страниц */
+    public static function pagesCanceled(): string
+    {
+        return 'Отменил выбор страниц. Выберите режим печати:';
+    }
+
+    /** Итог с исключениями */
+    public static function modeConfirmedMixed(
+        string $baseLabel,
+        string $exceptionLabel,
+        array $groups,
+        int $totalKopecks,
+        bool $fromDocx = false,
+    ): string {
+        $text = "Печать: {$baseLabel}";
+
+        foreach ($groups as $group) {
+            $mark = $group['exception'] ? " ({$exceptionLabel})" : '';
+
+            $text .= "\n{$group['format']}{$mark} — {$group['pages']} стр. × ".Money::rub($group['price'])
+                .' = '.Money::rub($group['price'] * $group['pages']);
+        }
+
+        $text .= "\nИтого: ".Money::rub($totalKopecks);
+
+        if ($fromDocx) {
+            $text .= "\n\n".self::docxNote();
+        }
+
+        return $text."\n\nНажмите «Подтвердить», чтобы получить ссылку на оплату.";
     }
 
     /** Вернулись к боту */

@@ -95,6 +95,72 @@ final class PriceList
     }
 
     /**
+     * Цена заказа, где baseMode — режим по умолчанию, otherMode — режим для
+     * страниц из $exceptions. null, если на какой-то формат нет цены.
+     *
+     * @param  array<int, string>  $pageFormats  номер страницы => формат
+     * @param  array<int, int>  $exceptions  номера страниц другого режима
+     */
+    public function totalMixed(
+        string $baseMode,
+        string $otherMode,
+        array $pageFormats,
+        array $exceptions,
+    ): ?int {
+        $breakdown = $this->mixedBreakdown($baseMode, $otherMode, $pageFormats, $exceptions);
+
+        return $breakdown === null ? null : $breakdown['total'];
+    }
+
+    /**
+     * Разбивка по форматам и режимам — для текста клиенту.
+     *
+     * @param  array<int, string>  $pageFormats
+     * @param  array<int, int>  $exceptions
+     * @return array{groups: array<int, array{format: string, pages: int, price: int, exception: bool}>, total: int}|null
+     */
+    public function mixedBreakdown(
+        string $baseMode,
+        string $otherMode,
+        array $pageFormats,
+        array $exceptions,
+    ): ?array {
+        if ($pageFormats === []) {
+            return null;
+        }
+
+        $exceptionSet = array_flip(array_map('intval', $exceptions));
+        $groups = [];
+        $total = 0;
+
+        foreach ($pageFormats as $page => $format) {
+            $isException = isset($exceptionSet[(int) $page]);
+            $mode = $isException ? $otherMode : $baseMode;
+            $price = $this->price($mode, (string) $format);
+
+            if ($price === null) {
+                return null;
+            }
+
+            $key = $format.'|'.($isException ? '1' : '0');
+
+            if (! isset($groups[$key])) {
+                $groups[$key] = [
+                    'format' => (string) $format,
+                    'pages' => 0,
+                    'price' => $price,
+                    'exception' => $isException,
+                ];
+            }
+
+            $groups[$key]['pages']++;
+            $total += $price;
+        }
+
+        return ['groups' => array_values($groups), 'total' => $total];
+    }
+
+    /**
      * Форматы документа, на которые в этом режиме нет цены.
      *
      * @param  array<string, int>  $formats
@@ -116,7 +182,7 @@ final class PriceList
     /**
      * Форматы, которые в корпусе не печатают ни ЧБ, ни цветом.
      *
-     * @param  array<string, int>  $formats
+     * @param <string, int>  $formats
      * @return array<int, string>
      */
     public function unpriced(array $formats): array

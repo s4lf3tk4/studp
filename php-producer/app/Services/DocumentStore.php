@@ -42,6 +42,8 @@ final class DocumentStore
         ], self::TTL_UNPAID);
     }
 
+    
+
     /** @return array<string, mixed>|null */
     public function get(string $platform, int $userId): ?array
     {
@@ -84,17 +86,28 @@ final class DocumentStore
         Cache::put($this->key($platform, $userId), array_merge($entry, $values), $ttl ?? self::TTL_UNPAID);
     }
 
-        /** Сколько страниц какого формата: цена зависит от формата бумаги */
-    public function pages(string $platform, int $userId, array $formats): void
+    /** @param  array<int, string>  $pageFormats  номер страницы => формат */
+    public function pages(string $platform, int $userId, array $formats, array $pageFormats = []): void
     {
         $this->put($platform, $userId, [
             'pages' => array_sum($formats),
-            'pages_by_format' => $formats,     // формат => страниц
+            'pages_by_format' => $formats,
+            'page_formats' => $pageFormats,
             'print_mode' => null,
+            'exceptions' => [],
             'prices' => null,
             'amount_kopecks' => null,
             'status' => 'counted',
             'counted_at' => now()->toIso8601String(),
+        ]);
+    }
+
+        /** Клиент выбрал страницы другого режима: сохраняем список и новую сумму */
+    public function exceptions(string $platform, int $userId, array $pages, int $amountKopecks): void
+    {
+        $this->put($platform, $userId, [
+            'exceptions' => array_values(array_map('intval', $pages)),
+            'amount_kopecks' => $amountKopecks,
         ]);
     }
 
@@ -108,8 +121,9 @@ final class DocumentStore
     ): void {
         $this->put($platform, $userId, [
             'print_mode' => $mode,
-            'prices' => $prices,               // формат => копеек за страницу
+            'prices' => $prices,              
             'amount_kopecks' => $amountKopecks,
+            'exceptions' => [],
         ]);
     }
 

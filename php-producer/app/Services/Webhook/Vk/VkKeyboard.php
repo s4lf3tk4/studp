@@ -177,6 +177,47 @@ final class VkKeyboard
         ];
     }
 
+        /** Экран цены: подтвердить, отмена и выбор страниц другого режима */
+    public static function confirmOrPickPages(bool $baseIsColor): array
+    {
+        $label = $baseIsColor ? 'ЧБ страницы' : 'Цветные страницы';
+        $command = $baseIsColor ? BotCommand::PAGES_BW : BotCommand::PAGES_COLOR;
+
+        return [
+            'one_time' => false,
+            'buttons' => [
+                [
+                    [
+                        'action' => [
+                            'type' => 'text',
+                            'label' => 'Подтвердить',
+                            'payload' => json_encode(['command' => BotCommand::CONFIRM], JSON_UNESCAPED_UNICODE),
+                        ],
+                        'color' => 'positive',
+                    ],
+                    [
+                        'action' => [
+                            'type' => 'text',
+                            'label' => 'Отмена',
+                            'payload' => json_encode(['command' => BotCommand::CANCEL], JSON_UNESCAPED_UNICODE),
+                        ],
+                        'color' => 'negative',
+                    ],
+                ],
+                [
+                    [
+                        'action' => [
+                            'type' => 'text',
+                            'label' => $label,
+                            'payload' => json_encode(['command' => $command], JSON_UNESCAPED_UNICODE),
+                        ],
+                        'color' => 'primary',
+                    ],
+                ],
+            ],
+        ];
+    }
+
     /** @return array<string, array{label: string, active: bool}> */
     private static function campuses(): array
     {

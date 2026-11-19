@@ -27,12 +27,18 @@ final class Document extends Model
     protected $fillable = [
         'platform', 'external_user_id', 'chat_id', 'message_mid',
         'original_name', 'mime', 'size_bytes', 'file_path', 'campus',
-        'pages', 'print_mode', 'pages_by_format', 'status', 'error',
+        'pages', 'print_mode', 'special_pages', 'pages_by_format', 'status', 'error',
+        
     ];
 
     protected function casts(): array
     {
-        return ['size_bytes' => 'int', 'pages' => 'int', 'pages_by_format' => 'array'];
+        return [
+            'size_bytes' => 'int',
+            'pages' => 'int',
+            'pages_by_format' => 'array',
+            'special_pages' => 'array',
+        ];
     }
 
     /** @return HasMany<Payment, $this> */
@@ -78,6 +84,20 @@ final class Document extends Model
     public function statusLabel(): string
     {
         return self::STATUS_LABELS[$this->status] ?? (string) $this->status;
+    }
+
+    /** Страницы другого режима для админки: «Цветные: 1, 4» или «—» */
+    public function specialPagesLabel(): string
+    {
+        $pages = is_array($this->special_pages) ? $this->special_pages : [];
+
+        if ($pages === []) {
+            return '—';
+        }
+
+        $label = $this->print_mode === PrintMode::COLOR ? 'ЧБ' : 'Цветные';
+
+        return $label.': '.implode(', ', array_map('strval', $pages));
     }
 
     /** Режим печати для админки: «ЧБ», «Цветной» или «—» у документов до выбора режима */

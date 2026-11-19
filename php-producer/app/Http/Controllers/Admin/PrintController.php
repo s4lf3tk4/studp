@@ -50,6 +50,7 @@ final class PrintController
             'status_label' => $document->statusLabel(),
             'print_mode_label' => $document->modeLabel(),
             'formats' => $document->formatLabels(),
+            'special_pages' => $document->specialPagesLabel(),
             'notified' => $this->notifyPrinted($document),
         ]);
     }
@@ -128,6 +129,7 @@ final class PrintController
                 'campus_code' => $document->campus,
                 'pages' => (int) $document->pages,
                 'formats' => $document->formatLabels(),
+                'special_pages' => $document->specialPagesLabel(),
                 'print_mode' => $document->print_mode,
                 'print_mode_label' => $document->modeLabel(),
                 'amount_kopecks' => $amount,

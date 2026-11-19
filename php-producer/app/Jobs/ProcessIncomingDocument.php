@@ -108,6 +108,12 @@ final class ProcessIncomingDocument implements ShouldQueue
             $formats = $extension === 'docx'
                 ? $counter->formatsFromDocx($absolute, $pages)
                 : $counter->formatsFromFile($absolute, $pages);
+            
+            // Постраничные форматы: у PDF из pdfinfo, у DOCX по секциям (w:pgSz)
+            $pageFormats = $extension === 'docx'
+                ? $counter->docxPageFormats($absolute, $pages)
+                : $counter->pageFormats($absolute, $pages);
+
         } catch (RuntimeException $e) {
             $disk->delete($path);
 
@@ -167,7 +173,7 @@ final class ProcessIncomingDocument implements ShouldQueue
         // Черновик заказа: из него кнопки режима и «Подтвердить» соберут заказ в MySQL
         if ($this->userId !== null) {
             app(DocumentStore::class)->file($this->platform, $this->userId, $path, $disk->size($path));
-            app(DocumentStore::class)->pages($this->platform, $this->userId, $formats);
+            app(DocumentStore::class)->pages($this->platform, $this->userId, $formats, $pageFormats);
         }
 
         // Формат страницы вне A4…A0: печатать такое не будем
@@ -244,9 +250,11 @@ final class ProcessIncomingDocument implements ShouldQueue
         }
 
         $this->reply(
-            BotTexts::modeConfirmed(PrintMode::label($mode) ?? $mode, $formats, $perFormat, $total, $fromDocx),
-            $this->confirmKeyboard(),
-        );
+                BotTexts::modeConfirmed(...),
+                $this->platform === 'max'
+                    ? MaxKeyboard::confirmOrCancel()
+                    : VkKeyboard::confirmOrPickPages($mode === PrintMode::COLOR),
+            );
     }
 
     /** Кнопки корпусов: нужны, когда этот корпус не может напечатать формат */

@@ -47,6 +47,7 @@ final class OrderConfirmation
                 'campus' => $draft['campus'] ?? null,
                 'pages' => $draft['pages'],
                 'print_mode' => $draft['print_mode'] ?? null,
+                'special_pages' => $draft['exceptions'] ?? null,
                 'pages_by_format' => $draft['pages_by_format'] ?? null,
                 'status' => Document::STATUS_AWAITING_PAYMENT,
             ]);
@@ -71,6 +72,11 @@ final class OrderConfirmation
             (int) ($draft['amount_kopecks'] ?? 0),
             $paymentUrl,
             PrintMode::label(isset($draft['print_mode']) ? (string) $draft['print_mode'] : null),
+            isset($draft['exceptions']) && $draft['exceptions'] !== []
+                ? ($draft['print_mode'] ?? '') === PrintMode::COLOR
+                    ? 'ЧБ: '.implode(', ', array_map('strval', $draft['exceptions']))
+                    : 'Цветные: '.implode(', ', array_map('strval', $draft['exceptions']))
+                : null,
             BotTexts::formatsLine(
                 isset($draft['pages_by_format']) && is_array($draft['pages_by_format']) ? $draft['pages_by_format'] : [],
             ),
