@@ -322,6 +322,34 @@ final class BotTexts
             .'Ответить: ВК → «Сообщения сообщества» → этот диалог.';
     }
 
+        /** Фото приняты: сколько в этой пачке и сколько всего */
+    public static function photosCollected(int $batch, int $total): string
+    {
+        return "Принял {$batch} фото (всего страниц: {$total}).\n"
+            .'Пришлите остальные или нажмите «Подтвердить», если это всё.';
+    }
+
+    /** Фото удалены по кнопке «Отмена» */
+    public static function photosCanceled(): string
+    {
+        return "Удалил все отправленные фото.\n"
+            .'Пришлите файл (PDF/DOCX) или фото заново.';
+    }
+
+    /** Одно из фото не скачалось */
+    public static function photosFailed(): string
+    {
+        return "Не смог скачать фото из чата.\n"
+            .'Отправьте их ещё раз или пришлите документ файлом (PDF).';
+    }
+
+    /** Превышен лимит страниц в одном заказе */
+    public static function photosLimit(int $limit): string
+    {
+        return "За раз принимаю не больше {$limit} страниц.\n"
+            .'Нажмите «Подтвердить» — этот заказ оформлю, остальные пришлите следующим.';
+    }
+
     /** Вернулись к боту */
     public static function backToBot(): string
     {

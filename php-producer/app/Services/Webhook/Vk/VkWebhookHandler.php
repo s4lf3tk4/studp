@@ -20,6 +20,9 @@ use App\Support\BotTexts;
 use App\Support\ScheduleText;
 use Illuminate\Support\Facades\Log;
 use Symfony\Component\HttpFoundation\Response;
+use App\Jobs\CollectIncomingPhotos;
+use App\Jobs\FinalizePhotoOrder;
+use App\Services\PhotoInbox;
 
 final class VkWebhookHandler implements WebhookHandler
 {
@@ -33,6 +36,25 @@ final class VkWebhookHandler implements WebhookHandler
     public function handle(array $payload): Response
     {
         $event = VkEvent::fromPayload($payload);
+                // Временная диагностика фото: пишем сырое событие в отдельный файл
+        if (($payload['type'] ?? '') === 'message_new') {
+            $attachments = $payload['object']['message']['attachments'] ?? [];
+
+            if ($attachments !== []) {
+                @file_put_contents(
+                    storage_path('logs/vk-attachments.log'),
+                    json_encode([
+                        'event_id' => $payload['event_id'] ?? null,
+                        'message_id' => $payload['object']['message']['id'] ?? null,
+                        'conversation_message_id' => $payload['object']['message']['conversation_message_id'] ?? null,
+                        'date' => $payload['object']['message']['date'] ?? null,
+                        'count' => count($attachments),
+                        'types' => array_map(fn (array $a): string => (string) ($a['type'] ?? '?'), $attachments),
+                    ], JSON_UNESCAPED_UNICODE).PHP_EOL,
+                    FILE_APPEND,
+                );
+            }
+        }
 
         // Подтверждение адреса Callback API: ровно код, без JSON
         if ($event->type === 'confirmation') {
@@ -78,6 +100,11 @@ final class VkWebhookHandler implements WebhookHandler
         // Режим оператора: переписка идёт в интерфейсе сообщества ВК, бот не отвечает
         if (ChatState::isOperator('vk', $userId)) {
             return response('ok');
+        }
+
+        // Фото: собираем в один заказ, даже если пришли несколькими сообщениями
+        if ($event->photos !== []) {
+            return $this->handlePhotos($event, $userId);
         }
 
         if ($command !== null) {
@@ -134,6 +161,17 @@ final class VkWebhookHandler implements WebhookHandler
     {
         $peerId = $event->peerId;                    // куда отвечать
         $userId = $event->userId ?? $peerId;         // кто отправил: в личке совпадают, в беседе нет
+
+        // Решение по собранным фото
+        if ($command === BotCommand::PHOTOS_DONE) {
+            FinalizePhotoOrder::dispatch('vk', $userId);
+
+            return response('ok');
+        }
+
+        if ($command === BotCommand::PHOTOS_CANCEL) {
+            return $this->cancelPhotos($peerId, $userId);
+        }
 
         // Подтверждение заказа: заказ в MySQL и ссылка на оплату
         if ($command === BotCommand::CONFIRM) {
@@ -209,6 +247,55 @@ final class VkWebhookHandler implements WebhookHandler
         }
 
         return $this->reply($peerId, $text, $keyboard);
+    }
+
+    /** Пачка фото: качаем и складываем в сбор на очереди photos */
+    private function handlePhotos(VkEvent $event, int $userId): Response
+    {
+        Log::info('Фото в сообщении', [
+            'user_id' => $userId,
+            'attachments' => count($event->message['attachments'] ?? []),
+            'photos' => count($event->photos),
+            'types' => array_map(
+                fn (array $item): string => (string) ($item['type'] ?? '?'),
+                $event->message['attachments'] ?? [],
+            ),
+        ]);
+        $campus = app(CampusChoice::class)->get('vk', $userId);
+
+        if ($campus === null) {
+            return $this->reply($event->peerId, BotTexts::campusRequired(), VkKeyboard::chosenCampus());
+        }
+
+        CollectIncomingPhotos::dispatch(
+            platform: 'vk',
+            recipientId: $event->peerId,
+            userId: $userId,
+            urls: $event->photos,
+            date: $event->date,
+            campus: $campus,
+            messageId: $event->messageId,
+            groupId: $event->groupId,
+        );
+
+        // Ответит джоба, когда файлы уже на диске: «Принял N фото (всего M)»
+        return response('ok');
+    }
+
+    /** «Отмена»: чистим собранные файлы и состояние сбора */
+    private function cancelPhotos(int $peerId, int $userId): Response
+    {
+        $inbox = app(PhotoInbox::class);
+        $disk = \Illuminate\Support\Facades\Storage::disk('documents');
+
+        foreach ($inbox->items('vk', $userId) as $path) {
+            $disk->delete($path);
+        }
+
+        $inbox->forget('vk', $userId);
+        app(DocumentStore::class)->forget('vk', $userId);
+
+        return $this->reply($peerId, BotTexts::photosCanceled(), VkKeyboard::chosenCampus());
     }
 
     private function handleDocument(VkEvent $event): Response

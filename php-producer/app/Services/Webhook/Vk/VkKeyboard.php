@@ -149,6 +149,34 @@ final class VkKeyboard
         ];
     }
 
+        /** Сбор фото: подтвердить всё или удалить всё */
+    public static function photoCollect(): array
+    {
+        return [
+            'one_time' => false,
+            'buttons' => [
+                [
+                    [
+                        'action' => [
+                            'type' => 'text',
+                            'label' => 'Подтвердить',
+                            'payload' => json_encode(['command' => BotCommand::PHOTOS_DONE], JSON_UNESCAPED_UNICODE),
+                        ],
+                        'color' => 'positive',
+                    ],
+                    [
+                        'action' => [
+                            'type' => 'text',
+                            'label' => 'Отмена',
+                            'payload' => json_encode(['command' => BotCommand::PHOTOS_CANCEL], JSON_UNESCAPED_UNICODE),
+                        ],
+                        'color' => 'negative',
+                    ],
+                ],
+            ],
+        ];
+    }
+
     /** @return array<string, array{label: string, active: bool}> */
     private static function campuses(): array
     {

@@ -204,7 +204,7 @@ Artisan::command('documents:prune {--unpaid-days=1} {--paid-days=0} {--archive-d
     foreach ($disk->allFiles() as $path) {
         $extension = strtolower(pathinfo($path, PATHINFO_EXTENSION));
 
-        if (! in_array($extension, ['pdf', 'docx'], true)
+        if (! in_array(pathinfo($path, PATHINFO_EXTENSION), ['pdf', 'docx', 'jpg', 'jpeg'], true)
             || isset($known[$path])
             || $disk->lastModified($path) > $limit) {
             continue;

@@ -14,6 +14,8 @@ final class BotCommand
     public const PRINT_COLOR = 'print_color';
     public const CHAT_OPERATOR = 'chat_operator';
     public const CHAT_BOT = 'chat_bot';
+    public const PHOTOS_DONE = 'photos_done';
+    public const PHOTOS_CANCEL = 'photos_cancel';
 
     /** Команды кнопок режима печати => режим в заказе */
     public const MODES = [
@@ -43,6 +45,8 @@ final class BotCommand
         'к боту' => self::CHAT_BOT,
         'вернуться к боту' => self::CHAT_BOT,
         'бот' => self::CHAT_BOT,
+        'подтвердить всё' => self::PHOTOS_DONE,
+        'удалить всё' => self::PHOTOS_CANCEL,
     ];
 
     /** «Корпус 2» текстом → campus2: код одинаковый для клавиатуры и для БД */
@@ -74,6 +78,12 @@ final class BotCommand
         }
 
         return null;
+    }
+
+    /** Решение по собранным фото: подтвердить или удалить */
+    public static function isPhotoDecision(string $command): bool
+    {
+        return in_array($command, [self::PHOTOS_DONE, self::PHOTOS_CANCEL], true);
     }
 
     /**

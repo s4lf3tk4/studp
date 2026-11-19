@@ -10,6 +10,8 @@ use App\Services\VkMessageSender;
 use App\Services\Webhook\Max\MaxKeyboard;
 use App\Services\Webhook\Vk\VkKeyboard;
 use App\Support\BotTexts;
+use App\Support\PaperFormat;
+use App\Support\PriceList;
 use App\Support\PrintMode;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
@@ -17,8 +19,6 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use RuntimeException;
-use App\Support\PaperFormat;
-use App\Support\PriceList;
 
 final class ProcessIncomingDocument implements ShouldQueue
 {
@@ -35,8 +35,10 @@ final class ProcessIncomingDocument implements ShouldQueue
         public readonly ?string $fileName = null,
         public readonly ?string $extension = null,
         public readonly ?int $size = null,
-        public readonly ?int $userId = null,  
+        public readonly ?int $userId = null,
         public readonly ?string $campus = null,
+        // Файл уже на диске (PDF, собранный из фото) — скачивать не нужно
+        public readonly ?string $localPath = null,
     ) {}
 
     public function handle(DocumentPageCounter $counter): void
@@ -50,41 +52,51 @@ final class ProcessIncomingDocument implements ShouldQueue
             return;
         }
 
-        if ($this->size !== null && $this->size > $this->maxBytes()) {
+        // Лимит размера — только для того, что скачиваем сами: собранный из фото
+        // PDF бывает больше 30 МБ, но он уже наш и лежит на диске
+        if ($this->localPath === null && $this->size !== null && $this->size > $this->maxBytes()) {
             $this->reply(BotTexts::tooBig(intdiv($this->maxBytes(), 1048576)));
 
             return;
         }
 
-        // Файл скачиваем один раз и оставляем себе: подписанная ссылка VK/MAX
-        // рано или поздно перестанет открываться, а для печати нужны байты
         $disk = Storage::disk('documents');
-        $path = sprintf('%s/%s/%s.%s', $this->platform, now()->format('Y/m'), (string) Str::uuid(), $extension);
 
-        $disk->makeDirectory(dirname($path));
-        $absolute = $disk->path($path);
+        if ($this->localPath !== null) {
+            $path = $this->localPath;
+            $absolute = $disk->path($path);
+        } else {
+            $path = sprintf('%s/%s/%s.%s', $this->platform, now()->format('Y/m'), (string) Str::uuid(), $extension);
+
+            $disk->makeDirectory(dirname($path));
+            $absolute = $disk->path($path);
+        }
 
         try {
-            $this->download($absolute);
+            if ($this->localPath === null) {
+                // Файл скачиваем один раз и оставляем себе: подписанная ссылка VK/MAX
+                // рано или поздно перестанет открываться, а для печати нужны байты
+                $this->download($absolute);
 
-            // Платформа может прислать неверное расширение — сверяем с содержимым
-            $realExtension = $this->detectRealExtension($absolute, $extension);
+                // Платформа может прислать неверное расширение — сверяем с содержимым
+                $realExtension = $this->detectRealExtension($absolute, $extension);
 
-            if ($realExtension !== $extension) {
-                Log::notice('Расширение не совпало с содержимым', [
-                    'platform' => $this->platform,
-                    'declared' => $extension,
-                    'real' => $realExtension,
-                    'file_path' => $path,
-                ]);
+                if ($realExtension !== $extension) {
+                    Log::notice('Расширение не совпало с содержимым', [
+                        'platform' => $this->platform,
+                        'declared' => $extension,
+                        'real' => $realExtension,
+                        'file_path' => $path,
+                    ]);
 
-                // Переименовываем файл, чтобы админка видела правильный тип
-                $newPath = (string) preg_replace('/\.[a-z0-9]+$/i', '.'.$realExtension, $path);
-                $disk->move($path, $newPath);
+                    // Переименовываем файл, чтобы админка видела правильный тип
+                    $newPath = (string) preg_replace('/\.[a-z0-9]+$/i', '.'.$realExtension, $path);
+                    $disk->move($path, $newPath);
 
-                $path = $newPath;
-                $absolute = $disk->path($path);
-                $extension = $realExtension;
+                    $path = $newPath;
+                    $absolute = $disk->path($path);
+                    $extension = $realExtension;
+                }
             }
 
             // Файл на месте и тип известен — только теперь считаем страницы и форматы
@@ -213,7 +225,7 @@ final class ProcessIncomingDocument implements ShouldQueue
         return $this->platform === 'max' ? MaxKeyboard::confirmOrCancel() : VkKeyboard::confirmOrCancel();
     }
 
-        /**
+    /**
      * Единственный доступный режим: сразу считаем и показываем итог.
      *
      * @param  array<string, int>  $formats
