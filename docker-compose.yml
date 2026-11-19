@@ -129,7 +129,9 @@ services:
     image: redis:7-alpine
     container_name: studpechat-redis
     restart: unless-stopped
-    command: redis-server --maxmemory 64mb --maxmemory-policy noeviction
+    env_file:
+      - php-producer/.env
+    command: sh -c 'exec redis-server --maxmemory 64mb --maxmemory-policy noeviction --requirepass "$$REDIS_PASSWORD"'
     ports:
       - "127.0.0.1:6380:6379"
     volumes:
@@ -137,10 +139,28 @@ services:
     networks:
       - studpechat
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" ping | grep -q PONG"]
       interval: 5s
       timeout: 3s
       retries: 12
+
+  queue-photos:
+    <<: *php
+    user: "1000:1000"
+    restart: unless-stopped
+    stop_grace_period: 60s
+    deploy:
+      replicas: 1
+    command: php artisan queue:work --queue=photos --sleep=0.2 --tries=3 --timeout=120 --max-jobs=100 --memory=192
+    volumes:
+      - ./php-producer:/var/www
+      - ./docker/php/php.ini:/usr/local/etc/php/conf.d/custom.ini
+      - ./data/documents:/var/www/storage/app/private/documents
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_started
 
   scheduler:
     <<: *php
