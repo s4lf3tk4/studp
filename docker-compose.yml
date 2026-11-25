@@ -7,9 +7,6 @@ x-php: &php
   working_dir: /var/www
   environment:
     COMPOSER_HOME: /composer-global
-  dns:
-    - 1.1.1.1
-    - 8.8.8.8
   env_file:
     - .env
   volumes:
