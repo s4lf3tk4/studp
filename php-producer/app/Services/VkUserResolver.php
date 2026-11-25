@@ -12,6 +12,9 @@ use Illuminate\Support\Facades\Log;
  * Telegram присылает имя прямо в апдейте, а VK — только числовой from_id,
  * поэтому имя приходится запрашивать у API. Результат кэшируется, чтобы
  * не дёргать VK на каждое сообщение.
+ *
+ * Имя нужно только панели и уведомлению оператору, поэтому любая ошибка
+ * сети, DNS или Redis не должна ломать сценарий: возвращаем null.
  */
 final class VkUserResolver
 {
@@ -28,18 +31,41 @@ final class VkUserResolver
         }
 
         $cacheKey = "vk:name:{$vkUserId}";
-        $cached = Cache::get($cacheKey);
+        $cached = $this->cacheGet($cacheKey);
 
         // '' в кэше означает «спрашивали, имени нет»
-        if (is_string($cached)) {
+        if ($cached !== null) {
             return $cached === '' ? null : $cached;
         }
 
         $name = $this->fetch($vkUserId, $token);
 
-        Cache::put($cacheKey, $name ?? '', $name === null ? self::CACHE_TTL_FAIL : self::CACHE_TTL_OK);
+        $this->cachePut($cacheKey, $name ?? '', $name === null ? self::CACHE_TTL_FAIL : self::CACHE_TTL_OK);
 
         return $name;
+    }
+
+    /** Кэш — только оптимизация: без Redis идём прямо в API */
+    private function cacheGet(string $key): ?string
+    {
+        try {
+            $value = Cache::get($key);
+        } catch (\Throwable $e) {
+            Log::warning('Кэш имён VK недоступен', ['error' => $e->getMessage()]);
+
+            return null;
+        }
+
+        return is_string($value) ? $value : null;
+    }
+
+    private function cachePut(string $key, string $value, int $ttl): void
+    {
+        try {
+            Cache::put($key, $value, $ttl);
+        } catch (\Throwable $e) {
+            Log::warning('Кэш имён VK недоступен', ['error' => $e->getMessage()]);
+        }
     }
 
     private function fetch(int $vkUserId, string $token): ?string
@@ -48,11 +74,20 @@ final class VkUserResolver
         $isGroup = $vkUserId < 0;
         $method = $isGroup ? 'groups.getById' : 'users.get';
 
-        $response = Http::timeout(5)->get("https://api.vk.com/method/{$method}", [
-            $isGroup ? 'group_ids' : 'user_ids' => abs($vkUserId),
-            'access_token' => $token,
-            'v' => config('services.vk.api_version'),
-        ]);
+        try {
+            $response = Http::timeout(5)
+                ->connectTimeout(3)
+                ->get("https://api.vk.com/method/{$method}", [
+                    $isGroup ? 'group_ids' : 'user_ids' => abs($vkUserId),
+                    'access_token' => $token,
+                    'v' => config('services.vk.api_version'),
+                ]);
+        } catch (\Throwable $e) {
+            // Нет DNS, нет сети, таймаут — имя не критично
+            Log::warning('VK API недоступен', ['method' => $method, 'error' => $e->getMessage()]);
+
+            return null;
+        }
 
         if ($response->failed()) {
             Log::warning('VK API недоступен', ['method' => $method, 'status' => $response->status()]);
